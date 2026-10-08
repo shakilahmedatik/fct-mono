@@ -1,0 +1,24 @@
+{
+  "name": "@repo/shared-types",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./enums": "./src/enums.ts",
+    "./constants": "./src/constants.ts",
+    "./env": "./src/env/index.ts",
+    "./validators": "./src/validators/index.ts"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@repo/config-ts": "workspace:*",
+    "typescript": "^5.8.2"
+  }
+}
