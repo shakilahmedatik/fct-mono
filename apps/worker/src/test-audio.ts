@@ -1,10 +1,11 @@
 import { config } from "dotenv";
+
 config(); // Load monorepo .env
 
 import { db, schema } from "@repo/db";
 import { synthesizeAudioWithFailover } from "./audio/synthesizer";
-import { redisConnection } from "./lib/redis";
 import { workerLogger } from "./lib/logger";
+import { redisConnection } from "./lib/redis";
 
 async function main() {
   workerLogger.info("Testing Audio Synthesis and S3 Upload live...");
