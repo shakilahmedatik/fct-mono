@@ -1,0 +1,400 @@
+import { config } from "dotenv";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
+import * as schema from "./schema";
+
+config({ path: "../../.env" });
+
+const connectionString =
+  process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/first_cup_tech";
+
+const sql = postgres(connectionString);
+const db = drizzle(sql, { schema });
+
+async function seed() {
+  console.log("🌱 Starting First Cup Tech database seed...");
+
+  // 1. Clean existing records in reverse dependency order
+  console.log("🧹 Clearing old data...");
+  await db.delete(schema.itemInteractions);
+  await db.delete(schema.feedback);
+  await db.delete(schema.audioBriefs);
+  await db.delete(schema.digestItems);
+  await db.delete(schema.digests);
+  await db.delete(schema.storyMemberships);
+  await db.delete(schema.stories);
+  await db.delete(schema.userPreferences);
+  await db.delete(schema.sessions);
+  await db.delete(schema.accounts);
+  await db.delete(schema.verifications);
+  await db.delete(schema.users);
+  await db.delete(schema.blogPosts);
+  await db.delete(schema.newsletterSubscribers);
+  await db.delete(schema.contactMessages);
+  await db.delete(schema.systemSettings);
+
+  // 2. Seed Users
+  console.log("👤 Seeding users...");
+  const adminId = "usr_admin_01";
+  const proUserId = "usr_pro_01";
+  const freeUserId = "usr_free_01";
+
+  await db.insert(schema.users).values([
+    {
+      id: adminId,
+      name: "System Administrator",
+      email: "admin@firstcup.tech",
+      emailVerified: true,
+      role: "admin",
+      plan: "PRO",
+      persona: "CTO / Platform Architect",
+      telegramChatId: "123456789",
+      telegramUsername: "@firstcupadmin",
+      preferredDeliveryChannel: "telegram",
+      subscriptionStatus: "active",
+      onboardingCompletedAt: new Date(),
+    },
+    {
+      id: proUserId,
+      name: "Shakil Ahmed",
+      email: "shakil@firstcup.tech",
+      emailVerified: true,
+      role: "user",
+      plan: "PRO",
+      persona: "Founder / CEO",
+      telegramChatId: "987654321",
+      telegramUsername: "@shakilahmed",
+      preferredDeliveryChannel: "telegram",
+      paddleCustomerId: "ctm_01h9x8y7z6",
+      paddleSubscriptionId: "sub_01h9x8y7z6",
+      subscriptionStatus: "active",
+      onboardingCompletedAt: new Date(),
+    },
+    {
+      id: freeUserId,
+      name: "Sarah Chen",
+      email: "sarah@techcorp.io",
+      emailVerified: true,
+      role: "user",
+      plan: "FREE",
+      persona: "Senior Fullstack Developer",
+      preferredDeliveryChannel: "telegram",
+      subscriptionStatus: "trialing",
+      onboardingCompletedAt: new Date(),
+    },
+  ]);
+
+  // 3. Seed User Preferences
+  console.log("⚙️  Seeding user preferences...");
+  await db.insert(schema.userPreferences).values([
+    {
+      id: "pref_admin",
+      userId: adminId,
+      topics: ["ai", "engineering", "devops", "security"],
+      skillLevel: "advanced",
+      timezone: "UTC",
+      deliveryHour: 7,
+      audioEnabled: true,
+      channelEnabled: true,
+    },
+    {
+      id: "pref_pro",
+      userId: proUserId,
+      topics: ["ai", "startups", "engineering", "devops"],
+      skillLevel: "intermediate",
+      timezone: "UTC",
+      deliveryHour: 7,
+      audioEnabled: true,
+      channelEnabled: true,
+    },
+    {
+      id: "pref_free",
+      userId: freeUserId,
+      topics: ["frontend", "engineering", "ai"],
+      skillLevel: "intermediate",
+      timezone: "UTC",
+      deliveryHour: 8,
+      audioEnabled: false,
+      channelEnabled: false,
+    },
+  ]);
+
+  // 4. Seed Stories & Memberships
+  console.log("📰 Seeding stories & memberships...");
+  const story1Id = "sty_deepseek_v3";
+  const story2Id = "sty_valkey_8";
+  const story3Id = "sty_turbo_bun";
+  const story4Id = "sty_pgvector_17";
+
+  await db.insert(schema.stories).values([
+    {
+      id: story1Id,
+      canonicalTitle:
+        "DeepSeek-V3 architecture analysis: FP8 quantization and multi-head latent attention",
+      dominantSource: "hackernews",
+      status: "active",
+      embeddingModel: "text-embedding-3-small",
+      topics: ["ai", "engineering"],
+    },
+    {
+      id: story2Id,
+      canonicalTitle:
+        "Valkey 8.0 benchmarks demonstrate 3x throughput improvement over legacy cache engines",
+      dominantSource: "github",
+      status: "active",
+      embeddingModel: "text-embedding-3-small",
+      topics: ["devops", "engineering"],
+    },
+    {
+      id: story3Id,
+      canonicalTitle: "Turborepo 2.11 & Bun 1.3: Benchmarking Monorepo Build Acceleration",
+      dominantSource: "forem",
+      status: "active",
+      embeddingModel: "text-embedding-3-small",
+      topics: ["startups", "devops"],
+    },
+    {
+      id: story4Id,
+      canonicalTitle: "PostgreSQL 17 pgvector: In-Memory Indexing for 10M+ Vector Scale",
+      dominantSource: "reddit",
+      status: "active",
+      embeddingModel: "text-embedding-3-small",
+      topics: ["ai", "devops"],
+    },
+  ]);
+
+  await db.insert(schema.storyMemberships).values([
+    {
+      id: "mem_hn_01",
+      storyId: story1Id,
+      sourceItemId: "hn:41829102",
+      source: "hackernews",
+      url: "https://news.ycombinator.com/item?id=41829102",
+      title: "DeepSeek-V3 Paper: Architecture, FP8 and Training Details",
+      summary:
+        "Comprehensive architectural breakdown of DeepSeek-V3 showing novel MLA attention and 3x throughput.",
+      upvotes: 412,
+      comments: 184,
+      rankScore: 0.94,
+      topics: ["ai", "engineering"],
+    },
+    {
+      id: "mem_gh_01",
+      storyId: story2Id,
+      sourceItemId: "gh:valkey-io/valkey:8.0.0",
+      source: "github",
+      url: "https://github.com/valkey-io/valkey/releases/tag/8.0.0",
+      title: "Valkey 8.0.0 Release Notes and Performance Benchmarks",
+      summary:
+        "Official release announcement with multi-threaded I/O thread pooling and backward compatibility.",
+      upvotes: 890,
+      comments: 64,
+      rankScore: 0.88,
+      topics: ["devops", "engineering"],
+    },
+    {
+      id: "mem_dev_01",
+      storyId: story3Id,
+      sourceItemId: "forem:devto:19284",
+      source: "forem",
+      url: "https://dev.to/firstcup/turborepo-bun-speedup-2026",
+      title: "Why We Swapped Our Microservices for Bun Workspaces + Turborepo",
+      summary: "Case study cutting CI execution times from 9 minutes to 38 seconds.",
+      upvotes: 215,
+      comments: 32,
+      rankScore: 0.82,
+      topics: ["startups", "devops"],
+    },
+    {
+      id: "mem_rd_01",
+      storyId: story4Id,
+      sourceItemId: "reddit:databases:pgvector17",
+      source: "reddit",
+      url: "https://reddit.com/r/Database/comments/pgvector_17",
+      title: "Pgvector on PG17 handles 10M vectors with HNSW in-memory index",
+      summary: "Production scale test comparing pgvector on PG17 against dedicated vector DBs.",
+      upvotes: 350,
+      comments: 91,
+      rankScore: 0.79,
+      topics: ["ai", "devops"],
+    },
+  ]);
+
+  // 5. Seed Digests & Digest Items
+  console.log("🎙️  Seeding daily digests & audio briefs...");
+  const digestTodayId = "dig_today_pro_01";
+  const digestYesterdayId = "dig_yesterday_pro_01";
+
+  await db.insert(schema.digests).values([
+    {
+      id: digestTodayId,
+      userId: proUserId,
+      digestType: "daily_audio",
+      status: "delivered",
+      title: `Daily Executive Briefing — ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
+      digestDate: new Date(),
+      generatedAt: new Date(Date.now() - 3600 * 1000),
+      deliveredAt: new Date(Date.now() - 3300 * 1000),
+      isMaster: false,
+    },
+    {
+      id: digestYesterdayId,
+      userId: proUserId,
+      digestType: "daily_audio",
+      status: "delivered",
+      title: "Daily Executive Briefing — Yesterday",
+      digestDate: new Date(Date.now() - 86400 * 1000),
+      generatedAt: new Date(Date.now() - 90000 * 1000),
+      deliveredAt: new Date(Date.now() - 89000 * 1000),
+      isMaster: false,
+    },
+  ]);
+
+  await db.insert(schema.digestItems).values([
+    {
+      id: "dgi_01",
+      digestId: digestTodayId,
+      storyId: story1Id,
+      title: "DeepSeek-V3 architecture analysis: FP8 quantization and multi-head latent attention",
+      url: "https://news.ycombinator.com/item?id=41829102",
+      source: "hackernews",
+      summary:
+        "New technical whitepaper highlights novel mixture-of-experts optimizations achieving 3x token throughput on commodity H100 clusters.",
+      whyItMatters:
+        "Lowers self-hosted LLM inference unit economics by 60% compared to dense weights.",
+      position: 1,
+      rankScore: 0.94,
+      topics: ["ai", "engineering"],
+    },
+    {
+      id: "dgi_02",
+      digestId: digestTodayId,
+      storyId: story2Id,
+      title:
+        "Valkey 8.0 benchmarks demonstrate 3x throughput improvement over legacy cache engines",
+      url: "https://github.com/valkey-io/valkey/releases/tag/8.0.0",
+      source: "github",
+      summary:
+        "The Linux Foundation backed fork releases v8.0 with asynchronous multi-threaded I/O pipelines and native cluster slot rebalancing.",
+      whyItMatters: "Drop-in Redis replacement ready for high-concurrency production queues.",
+      position: 2,
+      rankScore: 0.88,
+      topics: ["devops", "engineering"],
+    },
+    {
+      id: "dgi_03",
+      digestId: digestTodayId,
+      storyId: story3Id,
+      title: "Turborepo 2.11 & Bun 1.3: Benchmarking Monorepo Build Acceleration",
+      url: "https://dev.to/firstcup/turborepo-bun-speedup-2026",
+      source: "forem",
+      summary:
+        "Case study cutting CI execution times from 9 minutes to 38 seconds using Bun workspaces alongside Turborepo task hashing.",
+      whyItMatters:
+        "Demonstrates tangible velocity gains when unifying the JavaScript tooling layer.",
+      position: 3,
+      rankScore: 0.82,
+      topics: ["startups", "devops"],
+    },
+  ]);
+
+  // 6. Seed Audio Brief
+  await db.insert(schema.audioBriefs).values({
+    id: "aud_today_01",
+    digestId: digestTodayId,
+    status: "ready",
+    script:
+      "Good morning! Here is your First Cup briefing for today. First, DeepSeek-V3 demonstrates major inference savings through FP8 quantization. Second, Valkey 8.0 brings asynchronous I/O thread pooling. And third, Turborepo paired with Bun accelerates monorepo builds dramatically.",
+    audioUrl: "https://storage.firstcup.tech/audio/dig_today_pro_01.mp3",
+    durationSec: 194,
+    provider: "elevenlabs",
+    deliveryChannel: "telegram",
+    deliveryStatus: "sent",
+    deliveryMessageId: "msg_9921",
+  });
+
+  // 7. Seed Feedback
+  await db.insert(schema.feedback).values({
+    id: "fb_01",
+    userId: proUserId,
+    digestId: digestTodayId,
+    digestItemId: "dgi_01",
+    type: "helpful",
+    weight: 1.0,
+    note: "Great technical depth on the attention mechanism.",
+  });
+
+  // 8. Seed Blog Posts
+  console.log("📝 Seeding blog posts...");
+  await db.insert(schema.blogPosts).values([
+    {
+      id: "blog_01",
+      slug: "tech-pulse-2026-10-08",
+      title: "Next.js 16 and Bun 1.3: The Serverless Convergence",
+      excerpt:
+        "An executive overview of full-stack TypeScript runtime evolutions and containerized deployment models.",
+      contentHtml:
+        "<p>The boundary between lightweight edge runtimes and persistent long-running microservices has fundamentally shifted. In this article, we break down how Bun and Next.js 16 interact in modern monorepos.</p>",
+      tags: ["nextjs", "bun", "architecture"],
+      publishedAt: new Date(Date.now() - 3600 * 1000 * 12),
+      digestDate: new Date(),
+    },
+    {
+      id: "blog_02",
+      slug: "state-of-quantization-2026",
+      title: "The State of Open Source AI Quantization",
+      excerpt:
+        "Why FP8 and 4-bit KV caching are revolutionizing private cloud LLM inference economics.",
+      contentHtml:
+        "<p>Running frontier-class models inside private VPCs was once constrained by exorbitant VRAM footprints. Novel quantization standards have changed the equation.</p>",
+      tags: ["ai", "llm", "quantization"],
+      publishedAt: new Date(Date.now() - 3600 * 1000 * 36),
+      digestDate: new Date(Date.now() - 86400 * 1000),
+    },
+  ]);
+
+  // 9. Seed Newsletter Subscribers
+  console.log("📬 Seeding newsletter subscribers...");
+  await db.insert(schema.newsletterSubscribers).values([
+    {
+      id: "sub_01",
+      email: "subscriber1@example.com",
+      status: "active",
+      unsubscribeToken: "token_sub_01",
+    },
+    {
+      id: "sub_02",
+      email: "subscriber2@example.com",
+      status: "active",
+      unsubscribeToken: "token_sub_02",
+    },
+  ]);
+
+  // 10. Seed System Settings
+  console.log("🔧 Seeding system settings...");
+  await db.insert(schema.systemSettings).values([
+    {
+      key: "crawler_interval_minutes",
+      value: "60",
+      updatedAt: new Date(),
+    },
+    {
+      key: "default_audio_provider",
+      value: "elevenlabs",
+      updatedAt: new Date(),
+    },
+    {
+      key: "min_relevance_score",
+      value: "0.75",
+      updatedAt: new Date(),
+    },
+  ]);
+
+  console.log("✅ First Cup Tech database seed completed successfully!");
+  await sql.end();
+}
+
+seed().catch((err) => {
+  console.error("❌ Seed failed:", err);
+  process.exit(1);
+});

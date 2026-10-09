@@ -17,6 +17,7 @@
     "db:generate": "turbo --filter=@repo/db generate",
     "db:migrate": "turbo --filter=@repo/db migrate",
     "db:push": "turbo --filter=@repo/db push",
+    "db:seed": "turbo --filter=@repo/db seed",
     "db:studio": "turbo --filter=@repo/db studio",
     "clean": "turbo clean && rm -rf node_modules apps/*/node_modules packages/*/node_modules"
   },
