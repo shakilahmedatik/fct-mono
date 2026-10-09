@@ -1,6 +1,7 @@
 import { db, schema } from "@repo/db";
 import { type Job, Worker } from "bullmq";
 import { eq } from "drizzle-orm";
+import { synthesizeAudioWithFailover } from "../audio/synthesizer";
 import { workerLogger } from "../lib/logger";
 import { deliveryQueue, emailQueue, QUEUES } from "../lib/queues";
 import { redisConnection } from "../lib/redis";
@@ -16,6 +17,7 @@ export function createAudioGenerationWorker() {
         where: eq(schema.digests.id, digestId),
         with: {
           items: true,
+          audioBrief: true,
         },
       });
 
@@ -23,28 +25,25 @@ export function createAudioGenerationWorker() {
         throw new Error(`Digest not found: ${digestId}`);
       }
 
-      // Synthesize script from digest items
-      const scriptLines = digest.items.map((item) => `${item.title}. ${item.summary || ""}`);
-      const script = `Good morning! Here is your First Cup briefing for today. ${scriptLines.join(" ")}`;
+      // Retrieve existing script from audioBrief, or synthesize from digest items
+      let script = digest.audioBrief?.script;
+      if (!script) {
+        const scriptLines = digest.items.map(
+          (item) =>
+            `${item.title}. ${item.summary || ""} ${item.whyItMatters ? `Why it matters: ${item.whyItMatters}` : ""}`,
+        );
+        script = `Good morning. Here is your First Cup briefing for today. ${scriptLines.join(" ")} Have a productive build day.`;
+      }
 
-      const audioBriefId = crypto.randomUUID();
-
-      // Upsert audio brief record
-      await db.insert(schema.audioBriefs).values({
-        id: audioBriefId,
-        digestId,
-        status: "ready",
+      // Synthesize audio with failover cascade (ElevenLabs -> Deepgram -> Kokoro) and upload to RustFS/S3
+      const { audioUrl, provider, durationSec } = await synthesizeAudioWithFailover(
         script,
-        audioUrl: `https://storage.firstcup.tech/audio/${digestId}.mp3`,
-        durationSec: 180,
-        provider: "elevenlabs",
-        deliveryChannel: "telegram",
-        deliveryStatus: "pending",
-      });
+        digestId,
+      );
 
       workerLogger.info(
-        { digestId, audioBriefId },
-        "Audio brief created. Triggering deliveries...",
+        { digestId, audioUrl, provider, durationSec },
+        "Audio generation and S3 upload completed. Triggering deliveries...",
       );
 
       // Enqueue deliveries if user is targeted
@@ -53,7 +52,7 @@ export function createAudioGenerationWorker() {
         await emailQueue.add("send-email", { digestId, userId });
       }
 
-      return { audioBriefId };
+      return { audioUrl, provider, durationSec };
     },
     {
       connection: redisConnection,
@@ -62,7 +61,7 @@ export function createAudioGenerationWorker() {
   );
 
   worker.on("completed", (job) => {
-    workerLogger.info({ jobId: job.id }, "Audio generation job completed");
+    workerLogger.info({ jobId: job.id }, "Audio generation job completed successfully");
   });
 
   worker.on("failed", (job, err) => {
