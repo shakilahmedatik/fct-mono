@@ -6,6 +6,10 @@ import type { AppBindings } from "../../types";
 import { digestService } from "./service";
 
 export const digestRouter = new Hono<AppBindings>()
+  .get("/public/latest", async (c) => {
+    const digest = await digestService.getLatestMasterDigest();
+    return c.json({ digest });
+  })
   .use("*", authGuard)
   .get("/", zValidator("query", digestQuerySchema), async (c) => {
     const user = c.get("user");

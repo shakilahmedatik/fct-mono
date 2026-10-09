@@ -11,6 +11,10 @@ export const digestService = {
     return digestRepository.findLatestUserDigest(userId);
   },
 
+  async getLatestMasterDigest() {
+    return digestRepository.findLatestMasterDigest();
+  },
+
   async getDigestById(id: string, userId: string) {
     const digest = await digestRepository.findById(id);
     if (!digest) throw new Error("Digest not found");

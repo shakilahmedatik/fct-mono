@@ -26,6 +26,17 @@ export const digestRepository = {
     });
   },
 
+  async findLatestMasterDigest() {
+    return db.query.digests.findFirst({
+      where: eq(schema.digests.isMaster, true),
+      orderBy: [desc(schema.digests.digestDate)],
+      with: {
+        items: true,
+        audioBrief: true,
+      },
+    });
+  },
+
   async findById(id: string) {
     return db.query.digests.findFirst({
       where: eq(schema.digests.id, id),
