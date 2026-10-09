@@ -13,7 +13,7 @@ export default function BillingPage() {
         </p>
       </div>
 
-      <Card className="p-6 border-emerald-500/30 bg-emerald-500/5">
+      <Card className="p-6 border-accent/30 bg-card">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
@@ -21,7 +21,7 @@ export default function BillingPage() {
               <Badge variant="success">Active Trial</Badge>
             </div>
             <p className="text-xs text-muted-foreground">
-              Your 14-day trial ends on October 22, 2026 ($12/month thereafter).
+              Your 14-day trial is active ($12/month thereafter).
             </p>
           </div>
           <Button variant="primary" className="gap-2">
@@ -31,18 +31,17 @@ export default function BillingPage() {
         </div>
       </Card>
 
-      <Card className="p-6 space-y-4">
+      <Card className="p-6 space-y-4 border-border/80 bg-card">
         <h3 className="font-semibold text-base">Plan Features Included</h3>
         <ul className="space-y-2.5 text-sm text-muted-foreground">
           <li className="flex items-center gap-2 text-foreground">
-            <Check className="h-4 w-4 text-emerald-500" /> Daily customized voice intelligence brief
+            <Check className="h-4 w-4 text-accent" /> Daily customized voice intelligence brief
           </li>
           <li className="flex items-center gap-2 text-foreground">
-            <Check className="h-4 w-4 text-emerald-500" /> Telegram & WhatsApp instant delivery
+            <Check className="h-4 w-4 text-accent" /> Telegram & WhatsApp instant delivery
           </li>
           <li className="flex items-center gap-2 text-foreground">
-            <Check className="h-4 w-4 text-emerald-500" /> Priority vector clustering and story
-            ranking
+            <Check className="h-4 w-4 text-accent" /> Priority vector clustering and story ranking
           </li>
         </ul>
       </Card>

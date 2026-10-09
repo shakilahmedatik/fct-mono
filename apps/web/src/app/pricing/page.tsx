@@ -30,13 +30,13 @@ export default function PricingPage() {
           <CardContent className="p-0 space-y-4">
             <ul className="space-y-3 text-sm text-muted-foreground">
               <li className="flex items-center gap-2">
-                <Check className="h-4 w-4 text-emerald-500" /> Weekly email intelligence newsletter
+                <Check className="h-4 w-4 text-accent" /> Weekly email intelligence newsletter
               </li>
               <li className="flex items-center gap-2">
-                <Check className="h-4 w-4 text-emerald-500" /> Web dashboard access
+                <Check className="h-4 w-4 text-accent" /> Web dashboard access
               </li>
               <li className="flex items-center gap-2">
-                <Check className="h-4 w-4 text-emerald-500" /> Generic tech topics
+                <Check className="h-4 w-4 text-accent" /> Generic tech topics
               </li>
             </ul>
             <div className="pt-6">
@@ -50,7 +50,7 @@ export default function PricingPage() {
         </Card>
 
         {/* Pro Plan */}
-        <Card className="p-8 border-emerald-500/40 bg-gradient-to-b from-emerald-500/5 to-transparent relative shadow-xl">
+        <Card className="p-8 border-accent/40 bg-card relative shadow-xl">
           <Badge variant="success" className="absolute -top-3 right-6">
             Most Popular
           </Badge>
@@ -67,22 +67,19 @@ export default function PricingPage() {
           <CardContent className="p-0 space-y-4">
             <ul className="space-y-3 text-sm text-foreground">
               <li className="flex items-center gap-2">
-                <Check className="h-4 w-4 text-emerald-500" /> Daily 3-minute studio audio briefing
+                <Check className="h-4 w-4 text-accent" /> Daily 3-minute studio audio briefing
               </li>
               <li className="flex items-center gap-2">
-                <Check className="h-4 w-4 text-emerald-500" /> Direct delivery via Telegram /
-                WhatsApp
+                <Check className="h-4 w-4 text-accent" /> Direct delivery via Telegram / WhatsApp
               </li>
               <li className="flex items-center gap-2">
-                <Check className="h-4 w-4 text-emerald-500" /> Custom topic filtering & persona
-                weighting
+                <Check className="h-4 w-4 text-accent" /> Custom topic filtering & persona weighting
               </li>
               <li className="flex items-center gap-2">
-                <Check className="h-4 w-4 text-emerald-500" /> Interactive feedback & adaptive
-                learning
+                <Check className="h-4 w-4 text-accent" /> Interactive feedback & adaptive learning
               </li>
               <li className="flex items-center gap-2">
-                <Check className="h-4 w-4 text-emerald-500" /> 14-day full access trial
+                <Check className="h-4 w-4 text-accent" /> 14-day full access trial
               </li>
             </ul>
             <div className="pt-6">

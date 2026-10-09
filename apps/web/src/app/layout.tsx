@@ -12,15 +12,15 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className="dark">
-      <body className="min-h-screen bg-background text-foreground antialiased flex flex-col selection:bg-emerald-500/20 selection:text-emerald-400">
+      <body className="min-h-screen bg-background text-foreground antialiased flex flex-col selection:bg-accent/20 selection:text-accent">
         <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/80 backdrop-blur-md">
           <div className="container mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
             <Link href="/" className="flex items-center gap-2.5 font-bold tracking-tight text-lg">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 shadow-sm">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/10 text-accent border border-accent/20 shadow-xs">
                 <Coffee className="h-5 w-5" />
               </div>
               <span>
-                First Cup <span className="text-emerald-500">Tech</span>
+                First Cup <span className="text-accent">Tech</span>
               </span>
             </Link>
 
@@ -48,7 +48,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </a>
               <a
                 href="http://localhost:3001"
-                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-500 active:scale-95 transition-all"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground shadow-xs hover:bg-accent/90 active:scale-95 transition-all"
               >
                 <span>Console</span>
                 <ArrowRight className="h-4 w-4" />
@@ -62,7 +62,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <footer className="border-t border-border/40 bg-card py-12 text-sm text-muted-foreground">
           <div className="container mx-auto max-w-6xl px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-6">
             <div className="flex items-center gap-2">
-              <Coffee className="h-4 w-4 text-emerald-500" />
+              <Coffee className="h-4 w-4 text-accent" />
               <span>© {new Date().getFullYear()} First Cup Tech Inc. All rights reserved.</span>
             </div>
             <div className="flex items-center gap-6 text-xs">

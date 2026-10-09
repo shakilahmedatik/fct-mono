@@ -1,6 +1,7 @@
 import type { AppType } from "@repo/api";
 import { hc } from "hono/client";
 
+export * from "./auth";
 export type { AppType };
 
 export function createApiClient(

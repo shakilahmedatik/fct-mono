@@ -17,18 +17,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <aside className="w-full md:w-64 border-b md:border-b-0 md:border-r border-border/40 bg-card/50 backdrop-blur-md p-6 flex flex-col justify-between shrink-0">
           <div>
             <div className="flex items-center gap-2.5 font-bold tracking-tight text-lg mb-8">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 shadow-sm">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/10 text-accent border border-accent/20 shadow-xs">
                 <Coffee className="h-5 w-5" />
               </div>
               <span>
-                First Cup <span className="text-emerald-500">Console</span>
+                First Cup <span className="text-accent">Console</span>
               </span>
             </div>
 
             <nav className="space-y-1.5 text-sm font-medium">
               <Link
                 href="/dashboard"
-                className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-emerald-500/10 text-emerald-400 font-semibold"
+                className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-accent/15 text-accent font-semibold"
               >
                 <LayoutDashboard className="h-4 w-4" />
                 <span>Today&apos;s Digest</span>
@@ -53,11 +53,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <div className="pt-6 border-t border-border/40 space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <div className="h-8 w-8 rounded-full bg-emerald-600/30 text-emerald-400 flex items-center justify-center font-bold text-xs border border-emerald-500/30">
-                  SC
+                <div className="h-8 w-8 rounded-full bg-accent/20 text-accent flex items-center justify-center font-bold text-xs border border-accent/30">
+                  FC
                 </div>
                 <div className="text-xs">
-                  <div className="font-semibold">Shakil Ahmed</div>
+                  <div className="font-semibold">Engineering Lead</div>
                   <div className="text-muted-foreground">Pro Member</div>
                 </div>
               </div>

@@ -1,9 +1,16 @@
+import { zValidator } from "@hono/zod-validator";
 import { db, schema } from "@repo/db";
 import { count, desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
+import { z } from "zod";
 import { authGuard } from "../../middleware/auth-guard";
 import { roleGuard } from "../../middleware/role-guard";
 import type { AppBindings } from "../../types";
+
+const banUserSchema = z.object({
+  banned: z.boolean(),
+  banReason: z.string().optional(),
+});
 
 export const adminRouter = new Hono<AppBindings>()
   .use("*", authGuard)
@@ -42,9 +49,9 @@ export const adminRouter = new Hono<AppBindings>()
     });
     return c.json({ users });
   })
-  .post("/users/:id/ban", async (c) => {
+  .post("/users/:id/ban", zValidator("json", banUserSchema), async (c) => {
     const id = c.req.param("id");
-    const { banned, banReason } = (await c.req.json()) as { banned: boolean; banReason?: string };
+    const { banned, banReason } = c.req.valid("json");
 
     const [updated] = await db
       .update(schema.users)
