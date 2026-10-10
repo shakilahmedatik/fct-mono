@@ -10,13 +10,19 @@ import {
   apiPost,
   createNewSession,
   exportSession,
+  fetchAISettings,
+  fetchAudioSettings,
   getSessionStatus,
   listPastSessions,
   loadQueueStatuses,
   loadSources,
 } from "./api";
 import {
+  type AIProviderStatus,
+  type AISettings,
   type AudioProviderDef,
+  type AudioProviderStatus,
+  type AudioSettings,
   type LogEntry,
   type ParameterPreset,
   PIPELINE_STEP_IDS,
@@ -102,6 +108,15 @@ export function usePipeline() {
   const [categories, setCategories] = useState<string[]>([]);
   const [showSourceConfig, setShowSourceConfig] = useState(false);
   const [showAiConfig, setShowAiConfig] = useState(false);
+  const [showAudioConfig, setShowAudioConfig] = useState(false);
+
+  // --- AI Settings & Introspection ---
+  const [aiSettings, setAiSettings] = useState<AISettings | null>(null);
+  const [aiProviders, setAiProviders] = useState<AIProviderStatus[]>([]);
+
+  // --- Audio Settings & Introspection ---
+  const [audioSettings, setAudioSettings] = useState<AudioSettings | null>(null);
+  const [audioStatuses, setAudioStatuses] = useState<AudioProviderStatus[]>([]);
 
   // --- AI config ---
   const [aiConfig, setAiConfig] = useState(DEFAULT_AI_CONFIG);
@@ -237,8 +252,28 @@ export function usePipeline() {
         updateParam("selectedProvider", configured.id);
         updateParam("selectedVoice", configured.defaultVoice);
       }
+      if (data.aiSettings) setAiSettings(data.aiSettings as AISettings);
+      if (data.aiProviders) setAiProviders(data.aiProviders as AIProviderStatus[]);
+      if (data.audioSettings) setAudioSettings(data.audioSettings as AudioSettings);
+      if (data.audioStatuses) setAudioStatuses(data.audioStatuses as AudioProviderStatus[]);
     } catch {
       addLog("error", "Failed to load source configuration");
+    }
+  }
+
+  async function loadAiSettings() {
+    const res = await fetchAISettings();
+    if (res) {
+      setAiSettings(res.settings);
+      setAiProviders(res.providers);
+    }
+  }
+
+  async function loadAudioSettings() {
+    const res = await fetchAudioSettings();
+    if (res) {
+      setAudioSettings(res.settings);
+      setAudioStatuses(res.providers);
     }
   }
 
@@ -698,6 +733,15 @@ export function usePipeline() {
     setAiConfig,
     showAiConfig,
     setShowAiConfig,
+    aiSettings,
+    aiProviders,
+    loadAiSettings,
+    // audio / voice
+    audioSettings,
+    audioStatuses,
+    showAudioConfig,
+    setShowAudioConfig,
+    loadAudioSettings,
     // params
     params,
     updateParam,

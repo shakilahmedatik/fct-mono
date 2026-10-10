@@ -6,17 +6,33 @@
 // AI
 export {
   type AIProviderConfig,
+  type AIProviderId,
+  type AIProviderStatus,
+  type AISettings,
   aiConfigStorage,
   generateCompletion,
   generateEmbedding,
+  getActiveAIConfig,
+  getAIProviderStatuses,
+  getAISettings,
+  saveAISettings,
+  testAIConnection,
 } from "./ai";
 // Audio
 export {
   AUDIO_PROVIDERS,
+  type AudioProviderId,
+  type AudioProviderStatus,
+  type AudioSettings,
+  type AudioVoiceOption,
   generateAudio,
+  getActiveAudioSettings,
+  getAudioProviderStatuses,
+  getAudioSettings,
   getEnabledProviders,
   getProviderDefinition,
   isProviderConfigured,
+  saveAudioSettings,
 } from "./audio";
 // Sources
 export {

@@ -3,7 +3,7 @@ import { and, eq, gte } from "drizzle-orm";
 import { generateEmbedding } from "../ai";
 import type { ClusteredStory, NormalizedSignal } from "../types";
 
-export const EMBEDDING_DIM = 768; // Gemini embedding dimension
+export const EMBEDDING_DIM = 384; // xenova-all-minilm-l6-v2 dimension
 
 export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
   let dot = 0;
@@ -36,10 +36,12 @@ export async function clusterSignalsInMemory(
 ): Promise<ClusteredStory[]> {
   if (signals.length === 0) return [];
 
-  // Generate real AI embeddings
-  const embeddingsList = await Promise.all(
-    signals.map((s) => generateEmbedding(`${s.title} ${s.summary || ""} ${s.topics.join(" ")}`)),
-  );
+  // Generate real AI embeddings sequentially to prevent ONNX OOM crashes
+  const embeddingsList: number[][] = [];
+  for (const s of signals) {
+    const text = `${s.title} ${s.summary || ""} ${s.topics.join(" ")}`;
+    embeddingsList.push(await generateEmbedding(text));
+  }
 
   const embeddings = embeddingsList.map((e) => new Float32Array(e));
 
@@ -127,10 +129,12 @@ export async function clusterAndPersistStories(
 ): Promise<ClusteredStory[]> {
   if (signals.length === 0) return [];
 
-  // 1. Calculate embeddings for each signal
-  const embeddingsList = await Promise.all(
-    signals.map((s) => generateEmbedding(`${s.title} ${s.summary || ""} ${s.topics.join(" ")}`)),
-  );
+  // 1. Calculate embeddings for each signal sequentially to prevent ONNX OOM crashes
+  const embeddingsList: number[][] = [];
+  for (const s of signals) {
+    const text = `${s.title} ${s.summary || ""} ${s.topics.join(" ")}`;
+    embeddingsList.push(await generateEmbedding(text));
+  }
   const embeddings = embeddingsList.map((e) => new Float32Array(e));
 
   // 2. In-memory Union-Find clustering across today's signals
@@ -240,7 +244,7 @@ export async function clusterAndPersistStories(
         clusterId,
         dominantSource,
         status: "active",
-        embeddingModel: "gemini-text-embedding-004",
+        embeddingModel: "xenova-all-minilm-l6-v2",
         embedding: serializeEmbedding(centroid),
         embeddingDim: EMBEDDING_DIM,
         topics: allTopics,

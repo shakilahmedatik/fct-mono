@@ -26,6 +26,8 @@ export const loggerMiddleware = createMiddleware(async (c, next) => {
   const duration = Date.now() - start;
   const status = c.res.status;
 
+  if (path === "/admin/playground/queues/status") return;
+
   logger.info({
     method,
     path,

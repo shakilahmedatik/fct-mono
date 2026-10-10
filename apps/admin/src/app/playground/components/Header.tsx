@@ -10,6 +10,7 @@ interface Props {
   onNewSession: () => void;
   onClear: () => void;
   onToggleAi: () => void;
+  onToggleAudio: () => void;
   onToggleSources: () => void;
 }
 
@@ -21,6 +22,7 @@ export function Header({
   onNewSession,
   onClear,
   onToggleAi,
+  onToggleAudio,
   onToggleSources,
 }: Props) {
   const enabledCount = sources.filter((s) => s.enabled).length;
@@ -30,7 +32,7 @@ export function Header({
     <div className="flex items-center justify-between">
       <div>
         <h1 className="text-2xl font-extrabold tracking-tight flex items-center gap-3">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/20 to-blue-500/20 border border-violet-500/30 text-lg">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-linear-to-br from-violet-500/20 to-blue-500/20 border border-violet-500/30 text-lg">
             🧪
           </span>
           Pipeline Playground
@@ -80,6 +82,13 @@ export function Header({
           className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 transition-colors border border-blue-500/20"
         >
           🧠 AI Model
+        </button>
+        <button
+          type="button"
+          onClick={onToggleAudio}
+          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 transition-colors border border-emerald-500/20"
+        >
+          🔊 Voice TTS
         </button>
         <button
           type="button"

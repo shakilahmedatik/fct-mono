@@ -7,8 +7,12 @@ import { zValidator } from "@hono/zod-validator";
 import { db, schema } from "@repo/db";
 import {
   type AIProviderConfig,
+  type AIProviderId,
+  type AISettings,
   AUDIO_PROVIDERS,
+  type AudioProviderId,
   type AudioScriptOptions,
+  type AudioSettings,
   aiConfigStorage,
   type ClusteredStory,
   clusterSignalsInMemory,
@@ -17,7 +21,11 @@ import {
   generateAudio,
   generateBlogPreview,
   generateDailyAudioScript,
+  getAIProviderStatuses,
+  getAISettings,
   getAllCategories,
+  getAudioProviderStatuses,
+  getAudioSettings,
   ingestFromSources,
   isProviderConfigured,
   type NormalizedSignal,
@@ -27,11 +35,15 @@ import {
   type RawSignal,
   rankAndSelectStories,
   type SourceDefinition,
+  saveAISettings,
+  saveAudioSettings,
   serializeForTransport,
+  testAIConnection,
 } from "@repo/pipeline";
 import { Hono } from "hono";
 import { z } from "zod";
 import { audioQueue } from "../../lib/queue-client";
+import { logger } from "../../middleware/logger";
 import type { AppBindings } from "../../types";
 import { cacheClear, cacheGet, cacheSet, getCacheStatus, listAllSessions } from "./cache";
 import { cleanQueue, getAllQueueStatuses, getQueueJobs, retryFailedJob } from "./queue-inspector";
@@ -145,17 +157,142 @@ export const playgroundRouter = new Hono<AppBindings>()
   })
 
   // ── Sources Configuration ─────────────────────────────────────────────────
-  .get("/sources", (c) => {
+  .get("/sources", async (c) => {
     const categories = getAllCategories(DEFAULT_SOURCES);
     const configuredProviders = AUDIO_PROVIDERS.map((p) => ({
       ...p,
       isConfigured: isProviderConfigured(p.id),
     }));
+    const aiSettings = await getAISettings();
+    const aiProviders = getAIProviderStatuses(aiSettings);
+    const audioSettings = await getAudioSettings();
+    const audioStatuses = getAudioProviderStatuses(audioSettings);
+
     return c.json({
       sources: DEFAULT_SOURCES,
       categories,
       audioProviders: configuredProviders,
+      aiSettings,
+      aiProviders,
+      audioSettings,
+      audioStatuses,
     });
+  })
+
+  // ── AI Provider Management ────────────────────────────────────────────────
+  .get("/ai/settings", async (c) => {
+    const settings = await getAISettings();
+    const providers = getAIProviderStatuses(settings);
+    return c.json({ success: true, settings, providers });
+  })
+
+  .post("/ai/settings", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const { activeProvider, model } = body as {
+      activeProvider?: AIProviderId;
+      model?: string;
+    };
+    const updates: Partial<AISettings> = {};
+    if (activeProvider) updates.activeProvider = activeProvider;
+    if (typeof model === "string") updates.model = model.trim();
+
+    const settings = await saveAISettings(updates);
+    const providers = getAIProviderStatuses(settings);
+    return c.json({ success: true, settings, providers });
+  })
+
+  .post("/ai/test", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const { providerId, model } = body as {
+      providerId?: AIProviderId;
+      model?: string;
+    };
+    const settings = await getAISettings();
+    const targetProvider = providerId || settings.activeProvider;
+    const result = await testAIConnection(targetProvider, model);
+    return c.json(result);
+  })
+
+  // ── Audio / Voice Provider Management ─────────────────────────────────────
+  .get("/audio/settings", async (c) => {
+    const settings = await getAudioSettings();
+    const providers = getAudioProviderStatuses(settings);
+    return c.json({ success: true, settings, providers });
+  })
+
+  .post("/audio/settings", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const { provider, deepgramModel, elevenlabsVoiceId, kokoroVoiceId, openaiVoiceId } = body as {
+      provider?: AudioProviderId;
+      deepgramModel?: string;
+      elevenlabsVoiceId?: string;
+      kokoroVoiceId?: string;
+      openaiVoiceId?: string;
+    };
+    const updates: Partial<AudioSettings> = {};
+    if (provider) updates.provider = provider;
+    if (typeof deepgramModel === "string") updates.deepgramModel = deepgramModel.trim();
+    if (typeof elevenlabsVoiceId === "string") updates.elevenlabsVoiceId = elevenlabsVoiceId.trim();
+    if (typeof kokoroVoiceId === "string") updates.kokoroVoiceId = kokoroVoiceId.trim();
+    if (typeof openaiVoiceId === "string") updates.openaiVoiceId = openaiVoiceId.trim();
+
+    const settings = await saveAudioSettings(updates);
+    const providers = getAudioProviderStatuses(settings);
+    return c.json({ success: true, settings, providers });
+  })
+
+  .post("/audio/test", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const { provider, script, voiceId } = body as {
+      provider?: AudioProviderId;
+      script?: string;
+      voiceId?: string;
+    };
+    const settings = await getAudioSettings();
+    const targetProvider = provider || settings.provider;
+
+    const testScript =
+      (script || "").trim() ||
+      "Good morning. This is your First Cup Tech daily executive briefing. AI architecture breakthroughs curated for founders. Have a focused build day.";
+
+    let targetVoiceId = voiceId;
+    if (!targetVoiceId) {
+      if (targetProvider === "elevenlabs")
+        targetVoiceId = settings.elevenlabsVoiceId || "JBFqnCBsd6RMkjVDRZzb";
+      else if (targetProvider === "deepgram")
+        targetVoiceId = settings.deepgramModel || "aura-asteria-en";
+      else if (targetProvider === "kokoro") targetVoiceId = settings.kokoroVoiceId || "af_bella";
+      else if (targetProvider === "openai") targetVoiceId = settings.openaiVoiceId || "alloy";
+    }
+    const resolvedVoiceId = targetVoiceId || "default";
+
+    try {
+      const result = await generateAudio({
+        provider: targetProvider,
+        script: testScript,
+        voiceId: resolvedVoiceId,
+        format: "mp3",
+      });
+
+      const audioBase64 = result.audioBuffer.toString("base64");
+      return c.json({
+        success: true,
+        provider: targetProvider,
+        voiceId: resolvedVoiceId,
+        durationSec: result.durationSec,
+        sizeBytes: result.sizeBytes,
+        audioBase64,
+        message: `Successfully synthesized audio using ${targetProvider.toUpperCase()} (${targetVoiceId})!`,
+      });
+    } catch (err: unknown) {
+      return c.json(
+        {
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+        },
+        500,
+      );
+    }
   })
 
   // ── Session Management ────────────────────────────────────────────────────
@@ -600,6 +737,7 @@ export const playgroundRouter = new Hono<AppBindings>()
         durationMs: Date.now() - startedAt,
       });
     } catch (err) {
+      logger.error(err, "Audio generation failed");
       return c.json(
         {
           success: false,
@@ -781,6 +919,13 @@ export const playgroundRouter = new Hono<AppBindings>()
   // ── Tier 4: Enqueue Prod Job ──────────────────────────────────────────────
   .post("/tier4/enqueue-prod", zValidator("json", sessionIdSchema), async (c) => {
     const { sessionId } = c.req.valid("json");
+    const rawAiConfig = c.req.header("x-ai-provider");
+    let aiConfig: AIProviderConfig | undefined;
+    if (rawAiConfig) {
+      try {
+        aiConfig = JSON.parse(rawAiConfig);
+      } catch {}
+    }
 
     try {
       const { digestQueue } = await import("../../lib/queue-client");
@@ -790,6 +935,7 @@ export const playgroundRouter = new Hono<AppBindings>()
         // Pass sessionId so the worker / dashboard can correlate the queue job
         // back to the playground run that triggered it.
         sourceSessionId: sessionId,
+        aiConfig,
       });
 
       return c.json({

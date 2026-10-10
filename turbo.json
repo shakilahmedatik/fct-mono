@@ -35,6 +35,9 @@
     "studio": {
       "cache": false,
       "persistent": true
+    },
+    "clean": {
+      "cache": false
     }
   }
 }

@@ -55,6 +55,18 @@ export interface QueueStatus {
   delayed: number;
 }
 
+export interface QueueJob {
+  id: string;
+  name: string;
+  data: Record<string, unknown>;
+  status: string;
+  attemptsMade: number;
+  timestamp: number;
+  processedOn?: number;
+  finishedOn?: number;
+  failedReason?: string;
+}
+
 export type LogLevel = "info" | "warn" | "error" | "success";
 
 export interface LogEntry {
@@ -67,6 +79,54 @@ export interface AiConfig {
   baseURL: string;
   apiKey: string;
   model: string;
+}
+
+export type AIProviderId = "local" | "openrouter" | "openai" | "gemini" | "anthropic";
+
+export interface AISettings {
+  activeProvider: AIProviderId;
+  model?: string;
+}
+
+export interface AIProviderStatus {
+  id: AIProviderId;
+  name: string;
+  description: string;
+  isConfigured: boolean;
+  isAvailable: boolean;
+  isActive: boolean;
+  activeModel: string;
+  baseURL: string;
+  maskedKey?: string;
+  missingRequirements?: string[];
+}
+
+export type AudioProviderId = "elevenlabs" | "deepgram" | "kokoro" | "openai";
+
+export interface AudioSettings {
+  provider: AudioProviderId;
+  deepgramModel: string;
+  elevenlabsVoiceId?: string;
+  kokoroVoiceId?: string;
+  openaiVoiceId?: string;
+}
+
+export interface AudioVoiceOption {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+export interface AudioProviderStatus {
+  id: AudioProviderId;
+  name: string;
+  description: string;
+  isConfigured: boolean;
+  isAvailable: boolean;
+  isActive: boolean;
+  missingRequirements?: string[];
+  activeModelOrVoice?: string;
+  availableVoices: AudioVoiceOption[];
 }
 
 export interface PipelineParameters {

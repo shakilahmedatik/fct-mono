@@ -12,6 +12,11 @@ import type {
 
 type KokoroVoice = NonNullable<GenerateOptions["voice"]>;
 
+declare global {
+  // eslint-disable-next-line vars-on-top, no-var
+  var __hf_fetch_patched: boolean | undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Provider Definitions
 // ---------------------------------------------------------------------------
@@ -486,9 +491,59 @@ async function generateWithKokoro(request: AudioGenerationRequest): Promise<Audi
 
   if (!kokoroTtsInstance) {
     console.log("Loading Kokoro TTS model (this might take a moment on first run)...");
-    // "onnx-community/Kokoro-82M-v1.0-ONNX" is the recommended model ID for ONNX runtime
+
+    // Monkey-patch global fetch to intercept Hugging Face requests and route through mirror.
+    // This is required because kokoro-js hardcodes 'huggingface.co' for downloading voice profiles,
+    // and the user's network blocks Hugging Face.
+    if (!globalThis.__hf_fetch_patched) {
+      const originalFetch = globalThis.fetch;
+      const patchedFetch: typeof globalThis.fetch = Object.assign(
+        async (input: string | URL | Request, init?: RequestInit) => {
+          let urlStr = "";
+          if (typeof input === "string") urlStr = input;
+          else if (input instanceof URL) urlStr = input.href;
+          else if (input instanceof Request) urlStr = input.url;
+
+          if (urlStr.includes("huggingface.co")) {
+            const newUrl = urlStr.replace("huggingface.co", "hf-mirror.com");
+            if (input instanceof Request) {
+              input = new Request(newUrl, input);
+            } else {
+              input = newUrl;
+            }
+          }
+          return originalFetch(input, init);
+        },
+        originalFetch,
+      );
+      globalThis.fetch = patchedFetch;
+      globalThis.__hf_fetch_patched = true;
+    }
+
+    // Configure Transformers.js environment and HF mirror
+    try {
+      const transformers = await import("@huggingface/transformers");
+      transformers.env.allowLocalModels = true;
+      transformers.env.remoteHost = "https://hf-mirror.com";
+
+      // Ensure Tensor always has location = 'cpu'
+      if (transformers.Tensor) {
+        Object.defineProperty(transformers.Tensor.prototype, "location", {
+          get() {
+            return "cpu";
+          },
+          set() {},
+          enumerable: true,
+          configurable: true,
+        });
+      }
+    } catch (e) {
+      console.warn("Failed to configure @huggingface/transformers env:", e);
+    }
+
+    // "onnx-community/Kokoro-82M-v1.0-ONNX" with quantized q8 (86MB, fast, memory-safe)
     kokoroTtsInstance = await KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", {
-      dtype: "fp32",
+      dtype: "q8",
     });
   }
 
@@ -502,11 +557,13 @@ async function generateWithKokoro(request: AudioGenerationRequest): Promise<Audi
 
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
+    const generateOpts: GenerateOptions = { voice: voiceId as KokoroVoice };
+    if (request.speed && request.speed !== 1.0) {
+      generateOpts.speed = request.speed;
+    }
+
     console.log(`Generating Kokoro TTS chunk ${i + 1}/${chunks.length} (${chunk.length} chars)`);
-    const audioResult = await kokoroTtsInstance.generate(chunk, {
-      voice: voiceId as KokoroVoice,
-      speed: request.speed || 1.0,
-    });
+    const audioResult = await kokoroTtsInstance.generate(chunk, generateOpts);
 
     if (audioResult.sampling_rate) sampleRate = audioResult.sampling_rate;
     audioArrays.push(audioResult.audio);
@@ -657,3 +714,5 @@ export function isProviderConfigured(providerId: string): boolean {
   }
   return Boolean(process.env[provider.envKeyName]);
 }
+
+export * from "./settings";

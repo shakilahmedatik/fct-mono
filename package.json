@@ -28,5 +28,13 @@
     "tailwindcss": "^4.3.3",
     "turbo": "^2.11.7",
     "typescript": "^5.8.2"
+  },
+  "resolutions": {
+    "sharp": "^0.35.5",
+    "onnxruntime-common": "1.21.0"
+  },
+  "overrides": {
+    "sharp": "^0.35.5",
+    "onnxruntime-common": "1.21.0"
   }
 }

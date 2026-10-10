@@ -1,6 +1,7 @@
 "use client";
 
 import { AiConfigPanel } from "./components/AiConfigPanel";
+import { AudioConfigPanel } from "./components/AudioConfigPanel";
 import { DataInspector } from "./components/DataInspector";
 import { Header } from "./components/Header";
 import { LogsPanel } from "./components/LogsPanel";
@@ -24,10 +25,28 @@ export default function PlaygroundPage() {
         onNewSession={p.startNewSession}
         onClear={p.clearCurrentSession}
         onToggleAi={() => p.setShowAiConfig(!p.showAiConfig)}
+        onToggleAudio={() => p.setShowAudioConfig(!p.showAudioConfig)}
         onToggleSources={() => p.setShowSourceConfig(!p.showSourceConfig)}
       />
 
-      {p.showAiConfig && <AiConfigPanel aiConfig={p.aiConfig} setAiConfig={p.setAiConfig} />}
+      {p.showAiConfig && (
+        <AiConfigPanel
+          settings={p.aiSettings}
+          providers={p.aiProviders}
+          onRefresh={p.loadAiSettings}
+        />
+      )}
+
+      {p.showAudioConfig && (
+        <AudioConfigPanel
+          settings={p.audioSettings}
+          providers={p.audioStatuses}
+          onRefresh={() => {
+            p.loadAudioSettings();
+            p.loadSourceConfig();
+          }}
+        />
+      )}
 
       {p.showSourceConfig && (
         <SourcesPanel
