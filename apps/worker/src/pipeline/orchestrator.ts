@@ -1,13 +1,17 @@
 import { db, schema } from "@repo/db";
+import {
+  clusterAndPersistStories,
+  generateAndPersistBlogPost,
+  generateDailyAudioScript,
+  ingestAllSources,
+  normalizeSignals,
+  type PipelineOptions,
+  type PipelineReport,
+  processUserCohorts,
+  rankAndSelectStories,
+} from "@repo/pipeline";
 import { workerLogger } from "../lib/logger";
 import { audioQueue } from "../lib/queues";
-import { ingestAllSources } from "./sources";
-import { clusterAndPersistStories } from "./stages/cluster";
-import { processUserCohorts } from "./stages/cohorts";
-import { normalizeSignals } from "./stages/normalize";
-import { rankAndSelectStories } from "./stages/rank";
-import { generateAndPersistBlogPost, generateDailyAudioScript } from "./stages/synthesize";
-import type { PipelineOptions, PipelineReport } from "./types";
 
 export async function runAutonomousPipeline(options?: PipelineOptions): Promise<PipelineReport> {
   const startedAt = Date.now();
@@ -43,7 +47,7 @@ export async function runAutonomousPipeline(options?: PipelineOptions): Promise<
   // -------------------------------------------------------------------------
   // Tier 2: Normalization & Vector Clustering & Story Entity Linking
   // -------------------------------------------------------------------------
-  const normalizedSignals = normalizeSignals(rawSignals, now);
+  const normalizedSignals = await normalizeSignals(rawSignals, now);
   workerLogger.info({ count: normalizedSignals.length }, "Signals normalized and scored.");
 
   const clusteredStories = await clusterAndPersistStories(normalizedSignals);
@@ -71,7 +75,7 @@ export async function runAutonomousPipeline(options?: PipelineOptions): Promise<
   // Tier 3: Ranking, Synthesis & Master Digest Generation
   // -------------------------------------------------------------------------
   const masterLimit = options?.limit || 6;
-  const masterStories = rankAndSelectStories(clusteredStories, masterLimit);
+  const masterStories = await rankAndSelectStories(clusteredStories, masterLimit);
 
   const masterDigestId = crypto.randomUUID();
   const formattedDateStr = now.toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -108,10 +112,8 @@ export async function runAutonomousPipeline(options?: PipelineOptions): Promise<
   }
 
   // 3c. Generate Audio Brief Script for Master Digest
-  const { script: masterAudioScript, durationSec: masterAudioDuration } = generateDailyAudioScript(
-    masterStories,
-    now,
-  );
+  const { script: masterAudioScript, durationSec: masterAudioDuration } =
+    await generateDailyAudioScript(masterStories, now);
   const masterAudioId = crypto.randomUUID();
   await db.insert(schema.audioBriefs).values({
     id: masterAudioId,

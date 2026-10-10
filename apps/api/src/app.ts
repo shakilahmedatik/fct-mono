@@ -12,6 +12,7 @@ import { contactRouter } from "./modules/contact/routes";
 import { deliveryRouter } from "./modules/delivery/routes";
 import { digestRouter } from "./modules/digest/routes";
 import { newsletterRouter } from "./modules/newsletter/routes";
+import { playgroundRouter } from "./modules/playground/routes";
 import { userRouter } from "./modules/user/routes";
 import type { AppBindings } from "./types";
 
@@ -45,6 +46,7 @@ export const app = new Hono<AppBindings>()
   .route("/blog", blogRouter)
   .route("/newsletter", newsletterRouter)
   .route("/contact", contactRouter)
+  .route("/admin/playground", playgroundRouter)
   .route("/admin", adminRouter);
 
 export default app;

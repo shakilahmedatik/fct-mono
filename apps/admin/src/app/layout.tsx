@@ -1,6 +1,6 @@
 import "./globals.css";
 import { Badge } from "@repo/ui";
-import { Activity, ExternalLink, Radio, Shield, Users } from "lucide-react";
+import { Activity, ExternalLink, FlaskConical, Radio, Shield, Users } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 
@@ -32,6 +32,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               >
                 <Activity className="h-4 w-4" />
                 <span>Overview</span>
+              </Link>
+              <Link
+                href="/playground"
+                className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+              >
+                <FlaskConical className="h-4 w-4" />
+                <span>Pipeline Playground</span>
               </Link>
               <Link
                 href="/users"
