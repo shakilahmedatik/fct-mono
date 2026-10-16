@@ -1,17 +1,8 @@
 "use client";
 
-import {
-  AlertCircle,
-  Bot,
-  CheckCircle2,
-  Cpu,
-  Globe,
-  Loader2,
-  Radio,
-  Sparkles,
-  Zap,
-} from "lucide-react";
-import { useState } from "react";
+import { Alert, AlertDescription, Badge, Button, Input } from "@repo/ui";
+import { AlertCircle, Bot, CheckCircle2, Cpu, Globe, Radio, Sparkles, Zap } from "lucide-react";
+import * as React from "react";
 import { testAIConnection, updateAISettings } from "../lib/api";
 import type { AIProviderId, AIProviderStatus, AISettings } from "../lib/types";
 
@@ -30,12 +21,12 @@ const PROVIDER_ICONS: Record<AIProviderId, React.ReactNode> = {
 };
 
 export function AiConfigPanel({ settings, providers, onRefresh }: Props) {
-  const [testingId, setTestingId] = useState<string | null>(null);
-  const [testResults, setTestResults] = useState<
+  const [testingId, setTestingId] = React.useState<string | null>(null);
+  const [testResults, setTestResults] = React.useState<
     Record<string, { success: boolean; message: string }>
   >({});
-  const [savingId, setSavingId] = useState<string | null>(null);
-  const [modelOverrides, setModelOverrides] = useState<Record<string, string>>({});
+  const [savingId, setSavingId] = React.useState<string | null>(null);
+  const [modelOverrides, setModelOverrides] = React.useState<Record<string, string>>({});
 
   const activeProviderId = settings?.activeProvider || "openrouter";
 
@@ -74,9 +65,9 @@ export function AiConfigPanel({ settings, providers, onRefresh }: Props) {
           <div className="flex items-center gap-2">
             <Bot className="w-5 h-5 text-blue-400" />
             <h3 className="font-bold text-sm text-foreground">AI / LLM Provider Management</h3>
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-medium">
+            <Badge variant="outline" className="text-blue-300 border-blue-500/30">
               Active: {activeProviderId.toUpperCase()}
-            </span>
+            </Badge>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
             Providers and secret API keys are managed safely in your server{" "}
@@ -117,20 +108,20 @@ export function AiConfigPanel({ settings, providers, onRefresh }: Props) {
                   </div>
 
                   {isActive ? (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-semibold flex items-center gap-1 shrink-0">
+                    <Badge variant="success" className="gap-1 shrink-0">
                       <Radio className="w-2.5 h-2.5 animate-pulse" />
                       Active
-                    </span>
+                    </Badge>
                   ) : p.isConfigured ? (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-medium flex items-center gap-1 shrink-0">
+                    <Badge variant="outline" className="gap-1 shrink-0 text-emerald-400">
                       <CheckCircle2 className="w-2.5 h-2.5" />
                       Ready in .env
-                    </span>
+                    </Badge>
                   ) : (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 font-medium flex items-center gap-1 shrink-0">
+                    <Badge variant="secondary" className="gap-1 shrink-0 text-amber-400">
                       <AlertCircle className="w-2.5 h-2.5" />
                       Not in .env
-                    </span>
+                    </Badge>
                   )}
                 </div>
 
@@ -161,14 +152,14 @@ export function AiConfigPanel({ settings, providers, onRefresh }: Props) {
                   </div>
 
                   {/* Model input */}
-                  <div className="pt-1 border-t border-border/30">
+                  <div className="pt-1 border-t border-border/30 space-y-1">
                     <label
                       htmlFor={`model-override-${p.id}`}
-                      className="text-[10px] text-muted-foreground block mb-1"
+                      className="text-[10px] text-muted-foreground block"
                     >
                       Model identifier:
                     </label>
-                    <input
+                    <Input
                       id={`model-override-${p.id}`}
                       type="text"
                       disabled={!p.isConfigured}
@@ -177,7 +168,7 @@ export function AiConfigPanel({ settings, providers, onRefresh }: Props) {
                         setModelOverrides((prev) => ({ ...prev, [p.id]: e.target.value }))
                       }
                       placeholder={p.activeModel}
-                      className="w-full text-xs font-mono px-2 py-1 rounded bg-background border border-border/50 text-foreground disabled:opacity-50"
+                      className="h-7 text-xs font-mono"
                     />
                   </div>
                 </div>
@@ -192,50 +183,40 @@ export function AiConfigPanel({ settings, providers, onRefresh }: Props) {
 
                 {/* Test Result Message */}
                 {testResult && (
-                  <div
-                    className={`text-[11px] rounded-lg p-2 font-mono leading-relaxed wrap-break-word ${
-                      testResult.success
-                        ? "bg-emerald-500/10 text-emerald-300 border border-emerald-500/20"
-                        : "bg-red-500/10 text-red-300 border border-red-500/20"
-                    }`}
-                  >
-                    {testResult.message}
-                  </div>
+                  <Alert variant={testResult.success ? "success" : "destructive"}>
+                    <AlertDescription className="font-mono text-[10px]">
+                      {testResult.message}
+                    </AlertDescription>
+                  </Alert>
                 )}
               </div>
 
               {/* Action Buttons */}
               <div className="flex items-center gap-2 pt-2 border-t border-border/40">
-                <button
+                <Button
                   type="button"
+                  variant={isActive ? "secondary" : "primary"}
+                  size="sm"
                   disabled={!p.isConfigured || isActive || isSaving}
                   onClick={() => handleSetActive(p.id)}
-                  className={`flex-1 text-xs py-1.5 px-2.5 rounded-lg font-medium transition-colors flex items-center justify-center gap-1.5 ${
-                    isActive
-                      ? "bg-blue-500/20 text-blue-300 cursor-default"
-                      : p.isConfigured
-                        ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                        : "bg-muted text-muted-foreground cursor-not-allowed opacity-50"
-                  }`}
+                  isLoading={isSaving}
+                  className="flex-1 text-xs cursor-pointer h-7"
                 >
-                  {isSaving ? (
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                  ) : isActive ? (
-                    "Active Provider"
-                  ) : (
-                    "Set as Active"
-                  )}
-                </button>
+                  {isActive ? "Active Provider" : "Set as Active"}
+                </Button>
 
-                <button
+                <Button
                   type="button"
+                  variant="outline"
+                  size="sm"
                   disabled={!p.isConfigured || isTesting}
                   onClick={() => handleTest(p.id)}
-                  className="text-xs py-1.5 px-2.5 rounded-lg bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors font-medium flex items-center justify-center gap-1 disabled:opacity-40"
+                  isLoading={isTesting}
+                  className="text-xs cursor-pointer h-7 px-3"
                   title="Test model connectivity"
                 >
-                  {isTesting ? <Loader2 className="w-3 h-3 animate-spin" /> : "Test"}
-                </button>
+                  Test
+                </Button>
               </div>
             </div>
           );

@@ -1,7 +1,8 @@
 "use client";
 
+import { Badge, Button } from "@repo/ui";
 import { AlertCircle, CheckCircle2, Clock, Play, RotateCcw, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import * as React from "react";
 import { fetchQueueJobs, retryQueueJob } from "../lib/api";
 import type { QueueJob, QueueStatus } from "../lib/types";
 
@@ -13,16 +14,16 @@ interface Props {
 type JobFilterStatus = "failed" | "active" | "waiting" | "completed";
 
 export function QueueDashboard({ queues, onRefresh }: Props) {
-  const [selectedQueue, setSelectedQueue] = useState<string | null>(null);
-  const [statusTab, setStatusTab] = useState<JobFilterStatus>("failed");
-  const [jobs, setJobs] = useState<QueueJob[]>([]);
-  const [loadingJobs, setLoadingJobs] = useState(false);
-  const [retryingId, setRetryingId] = useState<string | null>(null);
-  const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
+  const [selectedQueue, setSelectedQueue] = React.useState<string | null>(null);
+  const [statusTab, setStatusTab] = React.useState<JobFilterStatus>("failed");
+  const [jobs, setJobs] = React.useState<QueueJob[]>([]);
+  const [loadingJobs, setLoadingJobs] = React.useState(false);
+  const [retryingId, setRetryingId] = React.useState<string | null>(null);
+  const [expandedJobId, setExpandedJobId] = React.useState<string | null>(null);
 
   const activeQueue = queues.find((q) => q.name === selectedQueue);
 
-  const loadJobs = useCallback(async (queueName: string, status: JobFilterStatus) => {
+  const loadJobs = React.useCallback(async (queueName: string, status: JobFilterStatus) => {
     setLoadingJobs(true);
     try {
       const result = await fetchQueueJobs(queueName, status, 25);
@@ -35,7 +36,7 @@ export function QueueDashboard({ queues, onRefresh }: Props) {
     }
   }, []);
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (selectedQueue) {
       loadJobs(selectedQueue, statusTab);
     }
@@ -67,25 +68,27 @@ export function QueueDashboard({ queues, onRefresh }: Props) {
   };
 
   return (
-    <div className="rounded-2xl border border-border/60 bg-card/80 backdrop-blur-sm p-5 space-y-4">
+    <div className="rounded-2xl border border-border/60 bg-card/80 backdrop-blur-sm p-5 space-y-4 shadow-xs">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="font-bold text-sm">BullMQ Queue Dashboard</h3>
+          <h3 className="font-bold text-sm text-foreground">BullMQ Queue Dashboard</h3>
           <p className="text-xs text-muted-foreground">
             Monitor background workers, inspect failed runs, and view execution logs.
           </p>
         </div>
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={() => {
             onRefresh();
             if (selectedQueue) loadJobs(selectedQueue, statusTab);
           }}
-          className="text-xs px-2.5 py-1.5 rounded-lg bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors flex items-center gap-1.5 font-medium"
+          className="text-xs gap-1.5 cursor-pointer h-8"
         >
           <RotateCcw className="w-3.5 h-3.5" />
-          Refresh
-        </button>
+          <span>Refresh</span>
+        </Button>
       </div>
 
       {/* Queue Cards Grid */}
@@ -98,159 +101,154 @@ export function QueueDashboard({ queues, onRefresh }: Props) {
               key={q.name}
               role="button"
               tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  handleSelectQueue(q.name);
+                }
+              }}
               onClick={() => handleSelectQueue(q.name)}
-              onKeyDown={(e) => e.key === "Enter" && handleSelectQueue(q.name)}
-              className={`rounded-xl border p-4 space-y-3 cursor-pointer transition-all text-left ${
+              className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${
                 isSelected
-                  ? "border-primary/70 bg-primary/5 ring-1 ring-primary/40 shadow-sm"
-                  : "border-border/40 bg-muted/10 hover:border-border/80 hover:bg-muted/20"
+                  ? "border-accent ring-2 ring-accent/20 bg-accent/5 shadow-sm"
+                  : "border-border/60 bg-card/60 hover:border-border/90"
               }`}
             >
-              <div className="flex items-center justify-between">
-                <span className="font-semibold text-xs truncate max-w-[170px]" title={q.name}>
+              <div className="flex items-center justify-between mb-2">
+                <span
+                  className="font-bold font-mono text-xs text-foreground truncate"
+                  title={q.name}
+                >
                   {q.name}
                 </span>
-                {isSelected && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary font-medium">
-                    Inspecting
-                  </span>
-                )}
+                <Badge variant={q.failed > 0 ? "destructive" : "success"}>
+                  {q.failed > 0 ? `${q.failed} failed` : "healthy"}
+                </Badge>
               </div>
 
-              <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="grid grid-cols-4 gap-1 text-center font-mono text-[11px] pt-1 border-t border-border/30">
                 <button
                   type="button"
+                  className="p-1 rounded bg-muted/30 hover:bg-muted/60 transition-colors cursor-pointer text-center"
                   onClick={(e) => {
                     e.stopPropagation();
                     handleSelectQueue(q.name, "waiting");
                   }}
-                  className="rounded hover:bg-muted/40 p-1 transition-colors"
                 >
-                  <div className="text-base font-bold text-amber-400">{q.waiting}</div>
-                  <div className="text-[10px] text-muted-foreground">Waiting</div>
+                  <div className="text-[9px] text-muted-foreground font-sans">Wait</div>
+                  <div className="text-amber-500 font-semibold">{q.waiting}</div>
                 </button>
                 <button
                   type="button"
+                  className="p-1 rounded bg-muted/30 hover:bg-muted/60 transition-colors cursor-pointer text-center"
                   onClick={(e) => {
                     e.stopPropagation();
                     handleSelectQueue(q.name, "active");
                   }}
-                  className="rounded hover:bg-muted/40 p-1 transition-colors"
                 >
-                  <div className="text-base font-bold text-blue-400">{q.active}</div>
-                  <div className="text-[10px] text-muted-foreground">Active</div>
+                  <div className="text-[9px] text-muted-foreground font-sans">Active</div>
+                  <div className="text-blue-500 font-semibold">{q.active}</div>
                 </button>
                 <button
                   type="button"
+                  className="p-1 rounded bg-muted/30 hover:bg-muted/60 transition-colors cursor-pointer text-center"
                   onClick={(e) => {
                     e.stopPropagation();
                     handleSelectQueue(q.name, "completed");
                   }}
-                  className="rounded hover:bg-muted/40 p-1 transition-colors"
                 >
-                  <div className="text-base font-bold text-emerald-400">{q.completed}</div>
-                  <div className="text-[10px] text-muted-foreground">Done</div>
+                  <div className="text-[9px] text-muted-foreground font-sans">Done</div>
+                  <div className="text-emerald-500 font-semibold">{q.completed}</div>
                 </button>
-              </div>
-
-              {q.failed > 0 ? (
                 <button
                   type="button"
+                  className={`p-1 rounded transition-colors cursor-pointer text-center ${
+                    q.failed > 0
+                      ? "bg-red-500/20 hover:bg-red-500/30"
+                      : "bg-muted/30 hover:bg-muted/60"
+                  }`}
                   onClick={(e) => {
                     e.stopPropagation();
                     handleSelectQueue(q.name, "failed");
                   }}
-                  className="w-full text-xs text-red-400 bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 rounded-lg px-2 py-1.5 text-center font-medium flex items-center justify-center gap-1.5 transition-colors"
                 >
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                  {q.failed} failed — View Error
+                  <div className="text-[9px] text-muted-foreground font-sans">Fail</div>
+                  <div
+                    className={
+                      q.failed > 0 ? "text-destructive font-bold" : "text-muted-foreground"
+                    }
+                  >
+                    {q.failed}
+                  </div>
                 </button>
-              ) : (
-                <div className="text-[11px] text-muted-foreground/60 text-center py-0.5">
-                  Click to inspect jobs
-                </div>
-              )}
+              </div>
             </div>
           );
         })}
-        {(queues?.length || 0) === 0 && (
-          <div className="col-span-4 text-muted-foreground/50 text-sm text-center py-6">
-            Loading queue status...
-          </div>
-        )}
       </div>
 
-      {/* Selected Queue Job Inspector Drawer */}
+      {/* Selected Queue Jobs Drawer */}
       {selectedQueue && (
-        <div className="rounded-xl border border-border/80 bg-background/60 p-4 space-y-4 mt-2">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/40 pb-3">
+        <div className="rounded-xl border border-border/60 bg-muted/10 p-4 space-y-3">
+          <div className="flex items-center justify-between border-b border-border/40 pb-2.5">
             <div className="flex items-center gap-2">
-              <span className="font-mono text-sm font-semibold text-foreground">
-                {selectedQueue}
-              </span>
-              <span className="text-xs text-muted-foreground">Jobs Inspector</span>
+              <span className="font-bold text-xs text-foreground font-mono">{selectedQueue}</span>
+              <span className="text-xs text-muted-foreground">• Job Inspector</span>
             </div>
 
-            {/* Filter Tabs */}
-            <div className="flex items-center gap-1 bg-muted/40 p-1 rounded-lg">
-              <button
+            <div className="flex items-center gap-1.5">
+              <Button
                 type="button"
+                variant={statusTab === "failed" ? "destructive" : "ghost"}
+                size="sm"
                 onClick={() => setStatusTab("failed")}
-                className={`text-xs px-2.5 py-1 rounded-md transition-all flex items-center gap-1.5 font-medium ${
-                  statusTab === "failed"
-                    ? "bg-red-500/20 text-red-400 shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
+                className="text-xs h-7 px-2.5 gap-1.5 cursor-pointer"
               >
                 <AlertCircle className="w-3 h-3" />
-                Failed ({activeQueue?.failed ?? 0})
-              </button>
-              <button
+                <span>Failed ({activeQueue?.failed ?? 0})</span>
+              </Button>
+              <Button
                 type="button"
+                variant={statusTab === "active" ? "secondary" : "ghost"}
+                size="sm"
                 onClick={() => setStatusTab("active")}
-                className={`text-xs px-2.5 py-1 rounded-md transition-all flex items-center gap-1.5 font-medium ${
-                  statusTab === "active"
-                    ? "bg-blue-500/20 text-blue-400 shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
+                className="text-xs h-7 px-2.5 gap-1.5 cursor-pointer"
               >
                 <Play className="w-3 h-3" />
-                Active ({activeQueue?.active ?? 0})
-              </button>
-              <button
+                <span>Active ({activeQueue?.active ?? 0})</span>
+              </Button>
+              <Button
                 type="button"
+                variant={statusTab === "waiting" ? "secondary" : "ghost"}
+                size="sm"
                 onClick={() => setStatusTab("waiting")}
-                className={`text-xs px-2.5 py-1 rounded-md transition-all flex items-center gap-1.5 font-medium ${
-                  statusTab === "waiting"
-                    ? "bg-amber-500/20 text-amber-400 shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
+                className="text-xs h-7 px-2.5 gap-1.5 cursor-pointer"
               >
                 <Clock className="w-3 h-3" />
-                Waiting ({activeQueue?.waiting ?? 0})
-              </button>
-              <button
+                <span>Waiting ({activeQueue?.waiting ?? 0})</span>
+              </Button>
+              <Button
                 type="button"
+                variant={statusTab === "completed" ? "secondary" : "ghost"}
+                size="sm"
                 onClick={() => setStatusTab("completed")}
-                className={`text-xs px-2.5 py-1 rounded-md transition-all flex items-center gap-1.5 font-medium ${
-                  statusTab === "completed"
-                    ? "bg-emerald-500/20 text-emerald-400 shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
+                className="text-xs h-7 px-2.5 gap-1.5 cursor-pointer"
               >
                 <CheckCircle2 className="w-3 h-3" />
-                Done ({activeQueue?.completed ?? 0})
-              </button>
-            </div>
+                <span>Done ({activeQueue?.completed ?? 0})</span>
+              </Button>
 
-            <button
-              type="button"
-              onClick={() => setSelectedQueue(null)}
-              className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted/50 transition-colors"
-              title="Close Inspector"
-            >
-              <X className="w-4 h-4" />
-            </button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedQueue(null)}
+                className="h-7 w-7 p-0 cursor-pointer text-muted-foreground hover:text-foreground"
+                title="Close Inspector"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
           </div>
 
           {/* Job List */}
@@ -279,44 +277,47 @@ export function QueueDashboard({ queues, onRefresh }: Props) {
                           {new Date(job.timestamp).toLocaleString()}
                         </span>
                         {job.attemptsMade > 0 && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                          <Badge variant="outline" className="text-[10px]">
                             {job.attemptsMade} attempt{job.attemptsMade > 1 ? "s" : ""}
-                          </span>
+                          </Badge>
                         )}
                       </div>
 
                       <div className="flex items-center gap-2">
                         {statusTab === "failed" && (
-                          <button
+                          <Button
                             type="button"
+                            variant="destructive"
+                            size="sm"
                             disabled={retryingId === job.id}
                             onClick={() => handleRetry(job.id)}
-                            className="px-2.5 py-1 rounded bg-red-500/20 text-red-300 hover:bg-red-500/30 text-xs font-medium flex items-center gap-1 transition-colors disabled:opacity-50"
+                            isLoading={retryingId === job.id}
+                            className="h-7 text-xs gap-1 cursor-pointer"
                           >
-                            <RotateCcw
-                              className={`w-3 h-3 ${retryingId === job.id ? "animate-spin" : ""}`}
-                            />
-                            {retryingId === job.id ? "Retrying..." : "Retry Job"}
-                          </button>
+                            <RotateCcw className="w-3 h-3" />
+                            <span>Retry Job</span>
+                          </Button>
                         )}
-                        <button
+                        <Button
                           type="button"
+                          variant="ghost"
+                          size="sm"
                           onClick={() => setExpandedJobId(isExpanded ? null : job.id)}
-                          className="text-muted-foreground hover:text-foreground text-[11px] underline"
+                          className="h-7 text-xs text-muted-foreground hover:text-foreground cursor-pointer underline"
                         >
                           {isExpanded ? "Hide payload" : "View payload"}
-                        </button>
+                        </Button>
                       </div>
                     </div>
 
                     {/* Failed Reason Details Log Box */}
                     {job.failedReason && (
-                      <div className="rounded-md border border-red-500/30 bg-red-950/25 p-3 space-y-1">
-                        <div className="flex items-center gap-1.5 text-red-400 font-semibold text-[11px]">
+                      <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 space-y-1">
+                        <div className="flex items-center gap-1.5 text-destructive font-semibold text-[11px]">
                           <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                          Failure Details / Exception:
+                          <span>Failure Details / Exception:</span>
                         </div>
-                        <pre className="font-mono text-[11px] text-red-200/90 whitespace-pre-wrap wrap-break-word leading-relaxed overflow-x-auto">
+                        <pre className="font-mono text-[11px] text-destructive/90 whitespace-pre-wrap wrap-break-word leading-relaxed overflow-x-auto">
                           {job.failedReason}
                         </pre>
                       </div>

@@ -1,0 +1,17 @@
+{
+  "extends": "../packages/config-ts/base.json",
+  "compilerOptions": {
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "typeRoots": [
+      "../node_modules/.bun/@types+bun@1.4.2/node_modules/@types",
+      "../node_modules/.bun/@types+node@22.20.5/node_modules/@types",
+      "../node_modules/.bun/@types+react@19.3.0/node_modules/@types",
+      "../node_modules/.bun/@types+react-dom@19.3.0+17530ac01dea6b83/node_modules/@types"
+    ],
+    "types": ["bun", "node", "react", "react-dom"],
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["e2e/**/*"]
+}

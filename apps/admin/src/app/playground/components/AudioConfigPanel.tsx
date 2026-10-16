@@ -1,7 +1,17 @@
 "use client";
 
-import { AlertCircle, CheckCircle2, Headphones, Loader2, Play, Radio, Volume2 } from "lucide-react";
-import { useState } from "react";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  Badge,
+  Button,
+  Select,
+  SelectOption,
+  Textarea,
+} from "@repo/ui";
+import { AlertCircle, CheckCircle2, Headphones, Play, Radio, Volume2 } from "lucide-react";
+import * as React from "react";
 import { testAudioSynthesis, updateAudioSettings } from "../lib/api";
 import type { AudioProviderId, AudioProviderStatus, AudioSettings } from "../lib/types";
 
@@ -15,13 +25,15 @@ const DEFAULT_SAMPLE_SCRIPT =
   "Good morning. This is your First Cup Tech daily executive briefing. AI architecture breakthroughs and engineering signals curated for founders. Have a focused build day.";
 
 export function AudioConfigPanel({ settings, providers, onRefresh }: Props) {
-  const [savingId, setSavingId] = useState<string | null>(null);
-  const [selectedVoiceOverrides, setSelectedVoiceOverrides] = useState<Record<string, string>>({});
+  const [savingId, setSavingId] = React.useState<string | null>(null);
+  const [selectedVoiceOverrides, setSelectedVoiceOverrides] = React.useState<
+    Record<string, string>
+  >({});
 
   // Audio test synthesis state
-  const [testScript, setTestScript] = useState(DEFAULT_SAMPLE_SCRIPT);
-  const [isSynthesizing, setIsSynthesizing] = useState(false);
-  const [testResult, setTestResult] = useState<{
+  const [testScript, setTestScript] = React.useState(DEFAULT_SAMPLE_SCRIPT);
+  const [isSynthesizing, setIsSynthesizing] = React.useState(false);
+  const [testResult, setTestResult] = React.useState<{
     audioUrl?: string;
     durationSec?: number;
     provider?: string;
@@ -99,19 +111,19 @@ export function AudioConfigPanel({ settings, providers, onRefresh }: Props) {
             <h3 className="font-bold text-sm text-foreground">
               Speech & Sound TTS Provider Management
             </h3>
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-medium">
+            <Badge variant="outline" className="text-emerald-300 border-emerald-500/30">
               Active: {activeProviderId.toUpperCase()}
-            </span>
+            </Badge>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Manage ElevenLabs, Deepgram Aura, Local Kokoro (ONNX), and OpenAI TTS engines. Switch
-            voices and test playback in real time.
+            Voice synthesis models power daily audio briefings. Local Kokoro ONNX requires zero
+            external API keys.
           </p>
         </div>
       </div>
 
-      {/* Provider Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3.5">
+      {/* Provider Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
         {(providers || []).map((p) => {
           const isActive = p.id === activeProviderId;
           const isSaving = savingId === p.id;
@@ -128,35 +140,35 @@ export function AudioConfigPanel({ settings, providers, onRefresh }: Props) {
                     : "border-border/30 bg-muted/10 opacity-75"
               }`}
             >
-              <div className="space-y-2.5">
-                {/* Header */}
+              <div className="space-y-2">
                 <div className="flex items-center justify-between gap-1.5">
-                  <span className="font-semibold text-xs text-foreground truncate" title={p.name}>
-                    {p.name}
-                  </span>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Headphones className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span className="font-semibold text-xs text-foreground truncate" title={p.name}>
+                      {p.name}
+                    </span>
+                  </div>
 
                   {isActive ? (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-semibold flex items-center gap-1 shrink-0">
+                    <Badge variant="success" className="gap-1 shrink-0">
                       <Radio className="w-2.5 h-2.5 animate-pulse" />
                       Active
-                    </span>
+                    </Badge>
                   ) : p.isConfigured ? (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-medium flex items-center gap-1 shrink-0">
+                    <Badge variant="outline" className="gap-1 shrink-0 text-emerald-400">
                       <CheckCircle2 className="w-2.5 h-2.5" />
                       Ready
-                    </span>
+                    </Badge>
                   ) : (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 font-medium flex items-center gap-1 shrink-0">
+                    <Badge variant="secondary" className="gap-1 shrink-0 text-amber-400">
                       <AlertCircle className="w-2.5 h-2.5" />
-                      Missing Keys
-                    </span>
+                      Not in .env
+                    </Badge>
                   )}
                 </div>
 
-                {/* Description */}
                 <p className="text-[11px] text-muted-foreground leading-relaxed">{p.description}</p>
 
-                {/* Voice Selector */}
                 <div className="rounded-lg bg-background/50 border border-border/40 p-2.5 space-y-1.5 text-[11px]">
                   <label
                     htmlFor={`voice-select-${p.id}`}
@@ -165,7 +177,7 @@ export function AudioConfigPanel({ settings, providers, onRefresh }: Props) {
                     Active Voice / Model:
                   </label>
                   {p.availableVoices && p.availableVoices.length > 0 ? (
-                    <select
+                    <Select
                       id={`voice-select-${p.id}`}
                       disabled={!p.isConfigured}
                       value={currentVoice}
@@ -175,14 +187,14 @@ export function AudioConfigPanel({ settings, providers, onRefresh }: Props) {
                           [p.id]: e.target.value,
                         }))
                       }
-                      className="w-full text-xs px-2 py-1.5 rounded bg-background border border-border/50 text-foreground outline-none disabled:opacity-50"
+                      className="h-7 text-xs py-1"
                     >
                       {p.availableVoices.map((v) => (
-                        <option key={v.id} value={v.id}>
+                        <SelectOption key={v.id} value={v.id}>
                           {v.name} {v.description ? `(${v.description})` : ""}
-                        </option>
+                        </SelectOption>
                       ))}
-                    </select>
+                    </Select>
                   ) : (
                     <div className="font-mono text-xs text-foreground truncate">
                       {p.activeModelOrVoice || "Default Voice"}
@@ -190,7 +202,6 @@ export function AudioConfigPanel({ settings, providers, onRefresh }: Props) {
                   )}
                 </div>
 
-                {/* Missing Requirements */}
                 {!p.isConfigured && p.missingRequirements && p.missingRequirements.length > 0 && (
                   <div className="text-[10px] text-amber-400 bg-amber-500/10 rounded px-2 py-1">
                     Missing in <code className="font-mono">.env</code>:{" "}
@@ -199,73 +210,57 @@ export function AudioConfigPanel({ settings, providers, onRefresh }: Props) {
                 )}
               </div>
 
-              {/* Set Active Button */}
-              <button
-                type="button"
-                disabled={!p.isConfigured || isActive || isSaving}
-                onClick={() => handleSetActive(p.id)}
-                className={`w-full text-xs py-1.5 px-2.5 rounded-lg font-medium transition-colors flex items-center justify-center gap-1.5 ${
-                  isActive
-                    ? "bg-emerald-500/20 text-emerald-300 cursor-default"
-                    : p.isConfigured
-                      ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                      : "bg-muted text-muted-foreground cursor-not-allowed opacity-50"
-                }`}
-              >
-                {isSaving ? (
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                ) : isActive ? (
-                  "Active TTS Engine"
-                ) : (
-                  "Set as Active"
-                )}
-              </button>
+              <div className="pt-2 border-t border-border/40">
+                <Button
+                  type="button"
+                  variant={isActive ? "secondary" : "primary"}
+                  size="sm"
+                  disabled={!p.isConfigured || isActive || isSaving}
+                  onClick={() => handleSetActive(p.id)}
+                  isLoading={isSaving}
+                  className="w-full text-xs h-7 cursor-pointer"
+                >
+                  {isActive ? "Active Voice Engine" : "Set Active"}
+                </Button>
+              </div>
             </div>
           );
         })}
       </div>
 
-      {/* Voice Synthesis Test Sandbox (Modeled directly after v1 audio-test) */}
-      <div className="rounded-xl border border-border/60 bg-background/50 p-4 space-y-3">
+      {/* Interactive Speech Synthesis Test Harness */}
+      <div className="rounded-xl border border-border/60 bg-card/60 p-4 space-y-3">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Headphones className="w-4 h-4 text-emerald-400" />
-            <span className="font-bold text-xs text-foreground">Voice Synthesis Test Bench</span>
-          </div>
-          <span className="text-[11px] text-muted-foreground">
-            Tests active engine:{" "}
-            <strong className="text-foreground">{activeProviderId.toUpperCase()}</strong>
+          <h4 className="font-semibold text-xs text-foreground">
+            Interactive Audio Test Synthesis
+          </h4>
+          <span className="text-[10px] text-muted-foreground">
+            Using active engine: <span className="font-mono">{activeProviderId.toUpperCase()}</span>
           </span>
         </div>
 
         <div className="space-y-2">
-          <textarea
+          <Textarea
             rows={2}
             value={testScript}
             onChange={(e) => setTestScript(e.target.value)}
             placeholder="Type sample briefing text to synthesize..."
-            className="w-full text-xs px-3 py-2 rounded-lg bg-background border border-border/50 text-foreground resize-none leading-relaxed"
+            className="text-xs leading-relaxed"
           />
 
           <div className="flex items-center justify-between gap-3">
-            <button
+            <Button
               type="button"
-              disabled={isSynthesizing || !testScript.trim()}
+              variant="primary"
+              size="sm"
+              disabled={!testScript.trim()}
+              isLoading={isSynthesizing}
               onClick={() => handleSynthesizeTest()}
-              className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50"
+              className="gap-1.5 text-xs cursor-pointer font-semibold"
             >
-              {isSynthesizing ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  Synthesizing Audio...
-                </>
-              ) : (
-                <>
-                  <Play className="w-3.5 h-3.5" />
-                  Synthesize Sample Audio
-                </>
-              )}
-            </button>
+              {!isSynthesizing && <Play className="w-3.5 h-3.5" />}
+              <span>Synthesize Sample Audio</span>
+            </Button>
 
             {testResult?.durationSec && (
               <span className="text-xs text-muted-foreground">
@@ -300,9 +295,10 @@ export function AudioConfigPanel({ settings, providers, onRefresh }: Props) {
         )}
 
         {testResult?.error && (
-          <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg p-2.5">
-            {testResult.error}
-          </div>
+          <Alert variant="destructive">
+            <AlertTitle>Synthesis Failed</AlertTitle>
+            <AlertDescription>{testResult.error}</AlertDescription>
+          </Alert>
         )}
       </div>
     </div>

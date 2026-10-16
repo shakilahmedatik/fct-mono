@@ -1,7 +1,8 @@
 "use client";
 
-import { ArrowDown, ClipboardCopy } from "lucide-react";
-import { useState } from "react";
+import { Button } from "@repo/ui";
+import { ArrowDown, ClipboardCopy, Download } from "lucide-react";
+import * as React from "react";
 import type { LogEntry } from "../lib/types";
 
 interface Props {
@@ -13,14 +14,14 @@ interface Props {
 }
 
 const LEVEL_CLASS: Record<LogEntry["level"], string> = {
-  info: "text-foreground/60",
-  warn: "text-amber-400 bg-amber-500/5",
-  error: "text-red-400 bg-red-500/5",
-  success: "text-emerald-400 bg-emerald-500/5",
+  info: "text-foreground/70",
+  warn: "text-amber-500 bg-amber-500/10",
+  error: "text-destructive bg-destructive/10",
+  success: "text-emerald-500 bg-emerald-500/10",
 };
 
 export function LogsPanel({ logs, logsEndRef, onScroll, onJumpToLatest, isScrolledUp }: Props) {
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = React.useState(false);
 
   function copyLogs() {
     const text = logs
@@ -49,41 +50,48 @@ export function LogsPanel({ logs, logsEndRef, onScroll, onJumpToLatest, isScroll
   }
 
   return (
-    <div className="rounded-2xl border border-border/60 bg-card/80 backdrop-blur-sm p-4 min-h-[400px] max-h-[600px] flex flex-col">
+    <div className="rounded-2xl border border-border/60 bg-card/80 backdrop-blur-sm p-4 min-h-[400px] max-h-[600px] flex flex-col shadow-xs">
       <div className="flex items-center justify-between mb-2 gap-2">
         <span className="text-xs font-semibold text-muted-foreground">
           {logs.length} {logs.length === 1 ? "entry" : "entries"}
-          {isScrolledUp && <span className="ml-2 text-amber-400">— paused (scrolled up)</span>}
+          {isScrolledUp && <span className="ml-2 text-amber-500">— paused (scrolled up)</span>}
         </span>
-        <div className="flex gap-1">
-          <button
+        <div className="flex gap-1.5">
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             onClick={copyLogs}
-            className="text-xs px-2 py-1 rounded bg-muted/40 text-muted-foreground hover:bg-muted/70 flex items-center gap-1"
+            className="text-xs h-7 px-2 cursor-pointer gap-1"
             title="Copy logs to clipboard"
           >
             <ClipboardCopy className="h-3 w-3" />
-            {copied ? "Copied!" : "Copy"}
-          </button>
-          <button
+            <span>{copied ? "Copied!" : "Copy"}</span>
+          </Button>
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             onClick={downloadLogs}
-            className="text-xs px-2 py-1 rounded bg-muted/40 text-muted-foreground hover:bg-muted/70"
+            className="text-xs h-7 px-2 cursor-pointer gap-1"
           >
-            Download
-          </button>
+            <Download className="h-3 w-3" />
+            <span>Download</span>
+          </Button>
         </div>
       </div>
       <div onScroll={onScroll} className="flex-1 overflow-auto font-mono text-xs space-y-1">
         {logs.length === 0 && (
-          <div className="text-muted-foreground/50">No logs yet. Execute a step to begin.</div>
+          <div className="text-muted-foreground/50 py-12 text-center">
+            No logs yet. Execute a step to begin.
+          </div>
         )}
         {logs.map((log, i) => (
           <div
             key={`${log.timestamp}-${i}`}
             className={`px-2 py-0.5 rounded ${LEVEL_CLASS[log.level]}`}
           >
-            <span className="text-muted-foreground/40 mr-2">
+            <span className="text-muted-foreground/50 mr-2">
               {new Date(log.timestamp).toLocaleTimeString()}
             </span>
             {log.message}
@@ -92,14 +100,16 @@ export function LogsPanel({ logs, logsEndRef, onScroll, onJumpToLatest, isScroll
         <div ref={logsEndRef} />
       </div>
       {isScrolledUp && (
-        <button
+        <Button
           type="button"
+          variant="secondary"
+          size="sm"
           onClick={onJumpToLatest}
-          className="mt-2 self-end text-xs font-semibold px-3 py-1.5 rounded-lg bg-accent/15 text-accent hover:bg-accent/25 flex items-center gap-1.5"
+          className="mt-2 self-end text-xs font-semibold gap-1.5 cursor-pointer"
         >
           <ArrowDown className="h-3 w-3" />
-          Jump to latest
-        </button>
+          <span>Jump to latest</span>
+        </Button>
       )}
     </div>
   );

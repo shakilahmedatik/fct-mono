@@ -1,105 +1,62 @@
 import { createApiClient } from "@repo/api-client";
-import { Badge, Card } from "@repo/ui";
-import Link from "next/link";
+import type { Metadata } from "next";
+import { BlogIndexClient, type BlogPostItem, FALLBACK_BLOG_POSTS } from "./blog-index-client";
 
-interface BlogPostItem {
-  id: string;
-  slug: string;
-  title: string;
-  excerpt: string;
-  publishedAt: string;
-  tags: string[];
-}
+export const metadata: Metadata = {
+  title: "Intelligence & Architecture Briefings — First Cup Tech",
+  description:
+    "Curated technology briefings, architecture deep-dives, and AI engineering analysis synthesized for tech leaders.",
+};
 
 async function getBlogPosts(): Promise<BlogPostItem[]> {
   try {
     const client = createApiClient();
-    const res = await client.blog.posts.$get({ query: { limit: 10 } });
-    if (!res.ok) return [];
+    const res = await client.blog.posts.$get({ query: { limit: 20 } });
+    if (!res.ok) return FALLBACK_BLOG_POSTS;
     const data = await res.json();
-    return (data.posts || []).map((p) => ({
-      id: p.id,
-      slug: p.slug,
-      title: p.title,
-      excerpt: p.excerpt,
-      publishedAt: p.publishedAt,
-      tags: p.tags || [],
-    }));
+    if (!data.posts || data.posts.length === 0) return FALLBACK_BLOG_POSTS;
+
+    return data.posts.map((p, idx) => {
+      const category: "ai" | "engineering" | "product" | "productivity" =
+        p.tags?.includes("ai") || p.tags?.includes("voice")
+          ? "ai"
+          : p.tags?.includes("productivity")
+            ? "productivity"
+            : p.tags?.includes("product")
+              ? "product"
+              : "engineering";
+
+      const categoryLabel =
+        category === "ai"
+          ? "AI & Voice"
+          : category === "engineering"
+            ? "Engineering"
+            : category === "productivity"
+              ? "Productivity"
+              : "Product";
+
+      return {
+        id: p.id,
+        slug: p.slug,
+        title: p.title,
+        excerpt: p.excerpt,
+        category,
+        categoryLabel,
+        readTime: "5 min read",
+        authorName: "First Cup Editorial",
+        authorRole: "Technical Intelligence",
+        authorInitials: "FC",
+        publishedAt: p.publishedAt,
+        tags: p.tags || [],
+        isFeatured: idx === 0,
+      };
+    });
   } catch {
-    return [];
+    return FALLBACK_BLOG_POSTS;
   }
 }
 
 export default async function BlogPage() {
   const posts = await getBlogPosts();
-
-  const displayPosts = posts.length
-    ? posts
-    : [
-        {
-          id: "1",
-          slug: "tech-pulse-2026-10-08",
-          title: "Next.js 16 and Bun 1.3: The Serverless Convergence",
-          excerpt:
-            "An executive overview of full-stack TypeScript runtime evolutions and containerized deployment models.",
-          publishedAt: new Date().toISOString(),
-          tags: ["nextjs", "bun", "architecture"],
-        },
-        {
-          id: "2",
-          slug: "state-of-quantization-2026",
-          title: "The State of Open Source AI Quantization",
-          excerpt:
-            "Why FP8 and 4-bit KV caching are revolutionizing private cloud LLM inference economics.",
-          publishedAt: new Date().toISOString(),
-          tags: ["ai", "llm", "quantization"],
-        },
-      ];
-
-  return (
-    <div className="container mx-auto max-w-4xl py-20 px-4 sm:px-6">
-      <div className="mb-12">
-        <Badge variant="outline" className="mb-4">
-          Intelligence Archive
-        </Badge>
-        <h1 className="text-4xl font-extrabold tracking-tight mb-2">
-          Curated Technology Briefings
-        </h1>
-        <p className="text-muted-foreground">
-          Historical briefings and deep-dives synthesized across the engineering ecosystem.
-        </p>
-      </div>
-
-      <div className="space-y-6">
-        {displayPosts.map((post) => {
-          const dateStr = new Date(post.publishedAt).toLocaleDateString("en-US", {
-            month: "long",
-            day: "numeric",
-            year: "numeric",
-          });
-
-          return (
-            <Link key={post.id} href={`/blog/${post.slug}`} className="block">
-              <Card className="p-6 hover:border-accent/40 transition-colors cursor-pointer">
-                <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
-                  <span>{dateStr}</span>
-                  <div className="flex gap-1.5">
-                    {post.tags.slice(0, 2).map((tag) => (
-                      <Badge key={tag} variant="secondary">
-                        {tag}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-                <h2 className="text-xl font-bold mb-2 text-foreground hover:text-accent transition-colors">
-                  {post.title}
-                </h2>
-                <p className="text-sm text-muted-foreground leading-relaxed">{post.excerpt}</p>
-              </Card>
-            </Link>
-          );
-        })}
-      </div>
-    </div>
-  );
+  return <BlogIndexClient initialPosts={posts} />;
 }

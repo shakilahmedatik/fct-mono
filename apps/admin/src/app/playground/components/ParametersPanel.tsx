@@ -1,7 +1,8 @@
 "use client";
 
+import { Button, Input, Select, SelectOption } from "@repo/ui";
 import { Trash2 } from "lucide-react";
-import { useState } from "react";
+import * as React from "react";
 import type { AudioProviderDef, ParameterPreset, PipelineParameters } from "../lib/types";
 
 interface Props {
@@ -13,7 +14,6 @@ interface Props {
   onSavePreset: (name: string) => void;
   onApplyPreset: (id: string) => void;
   onDeletePreset: (id: string) => void;
-  // Inline counts from the most recent run, for parameter fine-tuning UX.
   clusterCount: number | null;
   normalizedCount: number | null;
   rankedCount: number | null;
@@ -32,12 +32,12 @@ export function ParametersPanel({
   normalizedCount,
   rankedCount,
 }: Props) {
-  const [presetName, setPresetName] = useState("");
+  const [presetName, setPresetName] = React.useState("");
   const currentProvider = audioProviders?.find((p) => p.id === params.selectedProvider);
 
   return (
-    <div className="rounded-2xl border border-border/60 bg-card/80 backdrop-blur-sm p-5 space-y-5">
-      <h3 className="font-bold text-sm">Parameters</h3>
+    <div className="rounded-2xl border border-border/60 bg-card/80 backdrop-blur-sm p-5 space-y-5 shadow-xs">
+      <h3 className="font-bold text-sm text-foreground">Parameters</h3>
 
       {/* Cluster params */}
       <div className="space-y-2">
@@ -64,9 +64,9 @@ export function ParametersPanel({
             step="0.05"
             value={params.clusterThreshold}
             onChange={(e) => updateParam("clusterThreshold", Number(e.target.value))}
-            className="flex-1 accent-accent"
+            className="flex-1 accent-accent h-2 bg-muted rounded-lg appearance-none cursor-pointer"
           />
-          <span className="text-xs font-mono bg-muted/40 px-2 py-0.5 rounded w-12 text-center">
+          <span className="text-xs font-mono bg-muted/40 px-2 py-0.5 rounded w-12 text-center text-foreground">
             {params.clusterThreshold}
           </span>
         </div>
@@ -88,14 +88,14 @@ export function ParametersPanel({
             </span>
           </span>
         </div>
-        <input
+        <Input
           id="rank-limit"
           type="number"
           min={1}
           max={20}
           value={params.rankLimit}
           onChange={(e) => updateParam("rankLimit", Number(e.target.value))}
-          className="w-full rounded-lg border border-border/50 bg-muted/20 px-3 py-1.5 text-sm font-mono"
+          className="font-mono"
         />
       </div>
 
@@ -107,26 +107,26 @@ export function ParametersPanel({
         >
           Audio Duration Target (sec)
         </label>
-        <div className="flex gap-2">
-          <input
+        <div className="flex gap-2 items-center">
+          <Input
             id="target-min-duration"
             type="number"
             min={30}
             max={300}
             value={params.targetMinDuration}
             onChange={(e) => updateParam("targetMinDuration", Number(e.target.value))}
-            className="flex-1 rounded-lg border border-border/50 bg-muted/20 px-3 py-1.5 text-sm font-mono"
+            className="font-mono"
             placeholder="Min"
           />
           <span className="text-muted-foreground self-center">–</span>
-          <input
+          <Input
             id="target-max-duration"
             type="number"
             min={30}
             max={600}
             value={params.targetMaxDuration}
             onChange={(e) => updateParam("targetMaxDuration", Number(e.target.value))}
-            className="flex-1 rounded-lg border border-border/50 bg-muted/20 px-3 py-1.5 text-sm font-mono"
+            className="font-mono"
             placeholder="Max"
           />
         </div>
@@ -140,7 +140,7 @@ export function ParametersPanel({
         >
           Audio Provider
         </label>
-        <select
+        <Select
           id="selected-provider"
           value={params.selectedProvider}
           onChange={(e) => {
@@ -148,14 +148,13 @@ export function ParametersPanel({
             const prov = audioProviders.find((p) => p.id === e.target.value);
             updateParam("selectedVoice", prov?.defaultVoice || "");
           }}
-          className="w-full rounded-lg border border-border/50 bg-muted/20 px-3 py-1.5 text-sm"
         >
           {audioProviders.map((p) => (
-            <option key={p.id} value={p.id} disabled={!p.isConfigured}>
+            <SelectOption key={p.id} value={p.id} disabled={!p.isConfigured}>
               {p.name} {p.isConfigured ? "✓" : "(not configured)"}
-            </option>
+            </SelectOption>
           ))}
-        </select>
+        </Select>
         {currentProvider && (
           <div className="text-[10px] text-muted-foreground">{currentProvider.freeTier}</div>
         )}
@@ -170,18 +169,17 @@ export function ParametersPanel({
           >
             Voice
           </label>
-          <select
+          <Select
             id="selected-voice"
             value={params.selectedVoice}
             onChange={(e) => updateParam("selectedVoice", e.target.value)}
-            className="w-full rounded-lg border border-border/50 bg-muted/20 px-3 py-1.5 text-sm"
           >
             {currentProvider.voices.map((v) => (
-              <option key={v.id} value={v.id}>
+              <SelectOption key={v.id} value={v.id}>
                 {v.name} — {v.description} {v.gender ? `(${v.gender})` : ""}
-              </option>
+              </SelectOption>
             ))}
-          </select>
+          </Select>
         </div>
       )}
 
@@ -194,25 +192,27 @@ export function ParametersPanel({
           Parameter Presets
         </label>
         <div className="flex gap-2">
-          <input
+          <Input
             id="preset-name"
             type="text"
             placeholder="Preset name"
             value={presetName}
             onChange={(e) => setPresetName(e.target.value)}
-            className="flex-1 rounded-lg border border-border/50 bg-muted/20 px-3 py-1.5 text-xs"
+            className="text-xs"
           />
-          <button
+          <Button
             type="button"
+            variant="secondary"
+            size="sm"
             disabled={!presetName.trim()}
             onClick={() => {
               onSavePreset(presetName.trim());
               setPresetName("");
             }}
-            className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-accent/15 text-accent hover:bg-accent/25 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="text-xs cursor-pointer shrink-0"
           >
             Save
-          </button>
+          </Button>
         </div>
         {presets.length > 0 ? (
           <ul className="space-y-1">
@@ -226,7 +226,7 @@ export function ParametersPanel({
                 <button
                   type="button"
                   onClick={() => onApplyPreset(p.id)}
-                  className="flex-1 text-left truncate font-mono"
+                  className="flex-1 text-left truncate font-mono cursor-pointer"
                   title={`Cluster ${p.params.clusterThreshold}, Rank ${p.params.rankLimit}, Audio ${p.params.targetMinDuration}–${p.params.targetMaxDuration}s`}
                 >
                   {p.name}
@@ -235,7 +235,7 @@ export function ParametersPanel({
                   type="button"
                   onClick={() => onDeletePreset(p.id)}
                   aria-label={`Delete ${p.name}`}
-                  className="p-1 rounded text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
+                  className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 cursor-pointer"
                 >
                   <Trash2 className="h-3 w-3" />
                 </button>

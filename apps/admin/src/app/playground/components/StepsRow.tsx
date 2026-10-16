@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@repo/ui";
 import { Play } from "lucide-react";
 import { type PlaygroundStep, STEPS } from "../lib/types";
 import type { StepStatus } from "../lib/usePipeline";
@@ -22,19 +23,23 @@ const STATUS_CLASS: Record<StepStatus, string> = {
 
 export function StepsRow({ isRunning, activeStep, getStepStatus, onRunStep, onRunFull }: Props) {
   return (
-    <div className="rounded-2xl border border-border/60 bg-card/80 backdrop-blur-sm p-5">
+    <div className="rounded-2xl border border-border/60 bg-card/80 backdrop-blur-sm p-5 shadow-xs">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="font-bold text-sm">Pipeline Steps</h3>
-        <button
+        <h3 className="font-bold text-sm text-foreground">Pipeline Steps</h3>
+        <Button
           type="button"
+          variant="primary"
+          size="sm"
           disabled={isRunning}
+          isLoading={isRunning}
           onClick={onRunFull}
-          className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-accent/15 text-accent hover:bg-accent/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+          className="text-xs font-semibold gap-1.5 cursor-pointer"
         >
-          <Play className="h-3 w-3" />
-          Run Full Pipeline
-        </button>
+          {!isRunning && <Play className="h-3 w-3" />}
+          <span>Run Full Pipeline</span>
+        </Button>
       </div>
+
       <div className="flex flex-wrap gap-2">
         {STEPS.map((step, idx) => {
           const status = getStepStatus(step.id);

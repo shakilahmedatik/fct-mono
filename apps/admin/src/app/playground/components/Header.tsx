@@ -1,6 +1,8 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
+import { Button, Select, SelectOption } from "@repo/ui";
+import { Plus } from "lucide-react";
+import { ClearSessionDialog } from "./ClearSessionDialog";
 
 interface Props {
   sessionId: string;
@@ -29,9 +31,9 @@ export function Header({
   const otherSessions = pastSessions.filter((s) => s.sessionId !== sessionId);
 
   return (
-    <div className="flex items-center justify-between">
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
       <div>
-        <h1 className="text-2xl font-extrabold tracking-tight flex items-center gap-3">
+        <h1 className="text-2xl font-extrabold tracking-tight flex items-center gap-3 text-foreground">
           <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-linear-to-br from-violet-500/20 to-blue-500/20 border border-violet-500/30 text-lg">
             🧪
           </span>
@@ -41,69 +43,81 @@ export function Header({
           Step-by-step pipeline execution • Fine-tune parameters • Inspect outputs
         </p>
       </div>
-      <div className="flex items-center gap-3">
-        <div className="relative">
-          <select
-            value={sessionId}
-            onChange={(e) => onLoadSession(e.target.value)}
-            className="appearance-none text-xs text-muted-foreground font-mono bg-muted/40 rounded-md pl-2 pr-7 py-1 border border-border/40 outline-none focus:border-accent/60"
-            aria-label="Active session"
-          >
-            <option value={sessionId} disabled>
-              {sessionId?.slice(0, 8) || "new session…"}
-            </option>
-            {otherSessions.map((s) => (
-              <option key={s.sessionId} value={s.sessionId}>
-                {s.sessionId.slice(0, 8)} (
-                {s.lastActivity
-                  ? new Date(s.lastActivity).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })
-                  : "new"}
-                )
-              </option>
-            ))}
-          </select>
-          <ChevronDown className="h-3 w-3 absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-          <button
+
+      <div className="flex items-center gap-2.5 flex-wrap">
+        {/* Session Selector */}
+        <div className="flex items-center gap-1.5">
+          <div className="w-36 sm:w-44">
+            <Select
+              value={sessionId}
+              onChange={(e) => onLoadSession(e.target.value)}
+              aria-label="Active session"
+              className="h-8 text-xs font-mono py-1"
+            >
+              <SelectOption value={sessionId}>
+                {sessionId?.slice(0, 8) || "new session…"} (active)
+              </SelectOption>
+              {otherSessions.map((s) => (
+                <SelectOption key={s.sessionId} value={s.sessionId}>
+                  {s.sessionId.slice(0, 8)} (
+                  {s.lastActivity
+                    ? new Date(s.lastActivity).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    : "new"}
+                  )
+                </SelectOption>
+              ))}
+            </Select>
+          </div>
+
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             onClick={onNewSession}
             aria-label="New session"
-            className="ml-1 px-2 py-1 text-xs font-semibold rounded bg-muted hover:bg-muted/80 text-foreground transition-colors"
+            className="h-8 px-2 text-xs cursor-pointer"
             title="New Session"
           >
-            +
-          </button>
+            <Plus className="h-3.5 w-3.5" />
+          </Button>
         </div>
-        <button
+
+        {/* View Toggle Buttons */}
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={onToggleAi}
-          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 transition-colors border border-blue-500/20"
+          className="h-8 text-xs font-semibold border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10 cursor-pointer"
         >
           🧠 AI Model
-        </button>
-        <button
+        </Button>
+
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={onToggleAudio}
-          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 transition-colors border border-emerald-500/20"
+          className="h-8 text-xs font-semibold border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 cursor-pointer"
         >
           🔊 Voice TTS
-        </button>
-        <button
+        </Button>
+
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={onToggleSources}
-          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-muted/60 hover:bg-muted text-foreground transition-colors border border-border/50"
+          className="h-8 text-xs font-semibold cursor-pointer"
         >
           ⚙️ Sources ({enabledCount}/{sources.length})
-        </button>
-        <button
-          type="button"
-          onClick={onClear}
-          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-colors border border-red-500/20"
-        >
-          🗑️ Clear
-        </button>
+        </Button>
+
+        {/* Destructive Clear with Dialog confirmation */}
+        <ClearSessionDialog sessionId={sessionId} onConfirmClear={onClear} />
       </div>
     </div>
   );

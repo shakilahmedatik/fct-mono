@@ -7,7 +7,7 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["apps/**", "packages/**"]
+    "includes": ["apps/**", "packages/**", "tests/**"]
   },
   "formatter": {
     "enabled": true,
@@ -33,5 +33,22 @@
       "semicolons": "always",
       "trailingCommas": "all"
     }
-  }
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["tests/**"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          }
+        }
+      }
+    }
+  ]
 }

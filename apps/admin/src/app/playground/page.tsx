@@ -1,22 +1,24 @@
 "use client";
 
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui";
+import { Headphones, Layers, Sparkles, Workflow } from "lucide-react";
 import { AiConfigPanel } from "./components/AiConfigPanel";
 import { AudioConfigPanel } from "./components/AudioConfigPanel";
-import { DataInspector } from "./components/DataInspector";
+import { AudioWorkbench } from "./components/AudioWorkbench";
 import { Header } from "./components/Header";
-import { LogsPanel } from "./components/LogsPanel";
-import { OutputProducts } from "./components/OutputProducts";
-import { ParametersPanel } from "./components/ParametersPanel";
-import { QueueDashboard } from "./components/QueueDashboard";
+import { PipelineInspectorWorkbench } from "./components/PipelineInspectorWorkbench";
+import { PromptWorkbench } from "./components/PromptWorkbench";
 import { SourcesPanel } from "./components/SourcesPanel";
 import { StepsRow } from "./components/StepsRow";
+import { VectorSearchWorkbench } from "./components/VectorSearchWorkbench";
 import { usePipeline } from "./lib/usePipeline";
 
 export default function PlaygroundPage() {
   const p = usePipeline();
 
   return (
-    <div className="space-y-6 max-w-350">
+    <div className="space-y-6 max-w-7xl mx-auto pb-12">
+      {/* Session Management & Quick Toggles */}
       <Header
         sessionId={p.sessionId}
         pastSessions={p.pastSessions}
@@ -48,6 +50,7 @@ export default function PlaygroundPage() {
         />
       )}
 
+      {/* Conditionally Expanded Data Sources Panel with AddCustomRssDialog */}
       {p.showSourceConfig && (
         <SourcesPanel
           sources={p.sources}
@@ -57,6 +60,7 @@ export default function PlaygroundPage() {
         />
       )}
 
+      {/* Pipeline Step-by-Step Orchestrator */}
       <StepsRow
         isRunning={p.isRunning}
         activeStep={p.activeStep}
@@ -66,80 +70,73 @@ export default function PlaygroundPage() {
         onRunFull={p.runFullPipeline}
       />
 
-      {/* Parameter Tuning + Results */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <ParametersPanel
-          params={p.params}
-          updateParam={p.updateParam}
-          audioProviders={p.audioProviders}
-          presets={p.presets}
-          activePresetId={p.activePresetId}
-          onSavePreset={p.savePreset}
-          onApplyPreset={p.applyPreset}
-          onDeletePreset={p.deletePreset}
-          clusterCount={p.clusterCount}
-          normalizedCount={p.normalizedCount}
-          rankedCount={p.rankedCount}
-        />
-
-        <div className="lg:col-span-2 space-y-4">
-          <div
-            className="flex gap-1 border-b border-border/40 pb-0"
-            role="tablist"
-            aria-label="Result view"
-          >
-            {(["data", "logs", "output"] as const).map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                role="tab"
-                aria-selected={p.activeTab === tab}
-                onClick={() => p.setActiveTab(tab)}
-                className={`px-4 py-2 text-xs font-semibold rounded-t-lg border border-b-0 transition-colors ${
-                  p.activeTab === tab
-                    ? "bg-card border-border/60 text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {tab === "data"
-                  ? "📊 Data Inspector"
-                  : tab === "logs"
-                    ? "📝 Logs"
-                    : "📦 Output Products"}
-              </button>
-            ))}
+      {/* Tabbed Interactive AI & Pipeline Workbench */}
+      <Tabs defaultValue="prompt" className="space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/60 pb-3">
+          <div>
+            <h2 className="text-base font-bold text-foreground">
+              Interactive AI & Pipeline Workbench
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              Directly experiment with LLM prompt templates, Kokoro & Neural TTS synthesis, and
+              semantic vector embeddings.
+            </p>
           </div>
 
-          {p.activeTab === "data" && (
-            <DataInspector
-              currentResult={p.currentResult}
-              displayedInspectorStep={p.displayedInspectorStep}
-              onPickStep={(s) => p.setInspectorStep(s)}
-            />
-          )}
-
-          {p.activeTab === "logs" && (
-            <LogsPanel
-              logs={p.logs}
-              logsEndRef={p.logsEndRef}
-              onScroll={p.trackLogScroll}
-              onJumpToLatest={p.jumpToLatestLogs}
-              isScrolledUp={p.logsScrolledUp}
-            />
-          )}
-
-          {p.activeTab === "output" && (
-            <OutputProducts
-              outputTab={p.outputTab}
-              setOutputTab={p.setOutputTab}
-              stepResults={p.stepResults}
-              sessionId={p.sessionId}
-            />
-          )}
+          <TabsList className="bg-muted/60 p-1">
+            <TabsTrigger value="prompt" className="gap-2 text-xs font-semibold">
+              <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+              <span>Prompt Engineering</span>
+            </TabsTrigger>
+            <TabsTrigger value="audio" className="gap-2 text-xs font-semibold">
+              <Headphones className="h-3.5 w-3.5 text-emerald-500" />
+              <span>Audio Generation</span>
+            </TabsTrigger>
+            <TabsTrigger value="vector" className="gap-2 text-xs font-semibold">
+              <Layers className="h-3.5 w-3.5 text-blue-500" />
+              <span>Vector Search</span>
+            </TabsTrigger>
+            <TabsTrigger value="pipeline" className="gap-2 text-xs font-semibold">
+              <Workflow className="h-3.5 w-3.5 text-violet-500" />
+              <span>Pipeline Logs</span>
+            </TabsTrigger>
+          </TabsList>
         </div>
-      </div>
 
-      <QueueDashboard queues={p.queueStatuses} onRefresh={p.loadQueueStatus} />
+        {/* Tab 1: Prompt Engineering */}
+        <TabsContent value="prompt">
+          <PromptWorkbench />
+        </TabsContent>
+
+        {/* Tab 2: Audio Generation */}
+        <TabsContent value="audio">
+          <AudioWorkbench
+            settings={p.audioSettings}
+            providers={p.audioStatuses}
+            onRefresh={() => {
+              p.loadAudioSettings();
+              p.loadSourceConfig();
+            }}
+          />
+        </TabsContent>
+
+        {/* Tab 3: Vector Search */}
+        <TabsContent value="vector">
+          <VectorSearchWorkbench
+            clusterThreshold={p.params.clusterThreshold}
+            rankLimit={p.params.rankLimit}
+            onUpdateClusterThreshold={(val) => p.updateParam("clusterThreshold", val)}
+            onUpdateRankLimit={(val) => p.updateParam("rankLimit", val)}
+            clusterCount={p.clusterCount}
+            rankedCount={p.rankedCount}
+          />
+        </TabsContent>
+
+        {/* Tab 4: Pipeline Logs & Inspector */}
+        <TabsContent value="pipeline">
+          <PipelineInspectorWorkbench pipeline={p} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
