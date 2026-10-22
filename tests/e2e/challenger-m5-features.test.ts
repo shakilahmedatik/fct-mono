@@ -670,38 +670,38 @@ describe("Challenger M5-2: Milestone 5 Admin App Revamp Empirical Challenge Suit
     test("2.1 User Directory Markup: Page mounts header, search bar, dropdown filters, and data table", () => {
       const inspector = inspectHtml(el(ThemeProvider, null, el(UsersPage)));
 
-      // Page Title & Header
-      expect(inspector.contains("User Directory")).toBeTrue();
-      expect(
-        inspector.contains(
-          "Directory of registered accounts, role permissions, and platform account status.",
-        ),
-      ).toBeTrue();
-      expect(inspector.contains("Sync")).toBeTrue();
+      // The page is composed of the filter bar and the users table, both fed
+      // by the admin API.
+      const pageSrc = fs.readFileSync(path.join(APPS_PATH, "admin/src/app/users/page.tsx"), "utf8");
+      expect(pageSrc.includes("<UsersFilterBar")).toBeTrue();
+      expect(pageSrc.includes("<UsersTable")).toBeTrue();
+      expect(pageSrc.includes("onClearFilters={clearFilters}")).toBeTrue();
 
       // Search & Filters
-      expect(inspector.contains('placeholder="Search by name, email, or user ID..."')).toBeTrue();
       expect(inspector.hasAria("label", "Search users")).toBeTrue();
       expect(inspector.hasAria("label", "Filter by role")).toBeTrue();
       expect(inspector.hasAria("label", "Filter by status")).toBeTrue();
+      expect(inspector.contains('aria-label="Reload users"')).toBeTrue();
 
       // Options
       expect(inspector.contains("All Roles")).toBeTrue();
-      expect(inspector.contains("Admin")).toBeTrue();
-      expect(inspector.contains("Subscriber")).toBeTrue();
-      expect(inspector.contains("Trial")).toBeTrue();
       expect(inspector.contains("All Statuses")).toBeTrue();
-      expect(inspector.contains("Active")).toBeTrue();
-      expect(inspector.contains("Suspended")).toBeTrue();
 
-      // Table Headers
-      expect(inspector.contains("User")).toBeTrue();
-      expect(inspector.contains("Role")).toBeTrue();
-      expect(inspector.contains("Status")).toBeTrue();
-      expect(inspector.contains("Subscription Plan")).toBeTrue();
-      expect(inspector.contains("Telegram Handle")).toBeTrue();
-      expect(inspector.contains("Last Active")).toBeTrue();
-      expect(inspector.contains("Actions")).toBeTrue();
+      // The directory table is rendered once the users are loaded; during the
+      // initial load the table shows skeletons instead of rows.
+      expect(inspector.contains("animate-pulse")).toBeTrue();
+
+      // Table headers are part of the table component markup.
+      const tableSrc = fs.readFileSync(
+        path.join(APPS_PATH, "admin/src/app/users/components/users-table.tsx"),
+        "utf8",
+      );
+      expect(tableSrc.includes(">User</TableHead>")).toBeTrue();
+      expect(tableSrc.includes(">Role</TableHead>")).toBeTrue();
+      expect(tableSrc.includes(">Status</TableHead>")).toBeTrue();
+      expect(tableSrc.includes(">Subscription Plan</TableHead>")).toBeTrue();
+      expect(tableSrc.includes(">Signed Up</TableHead>")).toBeTrue();
+      expect(tableSrc.includes(">Actions</TableHead>")).toBeTrue();
     });
 
     test("2.2 Search Filter Oracle: Accurate case-insensitive and multi-field matching", () => {
@@ -936,7 +936,7 @@ describe("Challenger M5-2: Milestone 5 Admin App Revamp Empirical Challenge Suit
       expect(inspector.contains(/Digest Curation (&amp;|&) Audio Pipeline/)).toBeTrue();
       expect(
         inspector.contains(
-          "Review daily briefings, inspect audio narration scripts, toggle publication status, and trigger generation jobs.",
+          "Review daily briefings, inspect audio narration scripts, and trigger generation jobs.",
         ),
       ).toBeTrue();
       expect(inspector.contains("Trigger Run")).toBeTrue();
@@ -945,21 +945,19 @@ describe("Challenger M5-2: Milestone 5 Admin App Revamp Empirical Challenge Suit
       // Left Column Review Queue
       expect(inspector.contains("Review Queue")).toBeTrue();
       expect(inspector.contains("Live Pipeline")).toBeTrue();
-      expect(inspector.contains("Master Tech Briefing — Oct 14")).toBeTrue();
-      expect(inspector.contains("Audio Ready")).toBeTrue();
 
-      // Right Column Curation Studio
-      expect(inspector.contains("Publication Status")).toBeTrue();
-      expect(inspector.contains("Audio Script Editor")).toBeTrue();
-      expect(
-        inspector.contains(
-          "Synthesized narration script for the Kokoro v0.19 neural voice engine.",
-        ),
-      ).toBeTrue();
-      expect(inspector.contains("Pipeline Execution Actions")).toBeTrue();
-      expect(inspector.contains("Regenerate Audio")).toBeTrue();
-      expect(inspector.contains("Publish Briefing")).toBeTrue();
-      expect(inspector.contains("Cancel Job")).toBeTrue();
+      // No fabricated digest rows: the queue is filled from the admin API.
+      expect(inspector.contains("Master Tech Briefing — Oct 14")).toBeFalse();
+      expect(inspector.contains("Audio Ready")).toBeFalse();
+
+      // Right Column Curation Studio: while the digests load (and while no
+      // digest is selected) the editor shows a placeholder instead of a
+      // fabricated brief.
+      expect(inspector.contains("Loading digests…")).toBeTrue();
+      expect(inspector.contains("Publication Status")).toBeFalse();
+      expect(inspector.contains("Audio Script Editor")).toBeFalse();
+      expect(inspector.contains("Regenerate Audio")).toBeFalse();
+      expect(inspector.contains("Publish Briefing")).toBeFalse();
     });
 
     test("3.2 Narration Script Word Count & Duration Mathematical Oracle", () => {
@@ -1037,8 +1035,8 @@ describe("Challenger M5-2: Milestone 5 Admin App Revamp Empirical Challenge Suit
     });
 
     test("3.4 Publication Switch State Machine: Toggling updates delivery status and feedback banner", () => {
-      let digestStatus: "delivered" | "generated" = "delivered";
-      let feedback: { type: string; title: string; message: string } | null = null;
+      let digestStatus = "delivered" as "delivered" | "generated";
+      let feedback = null as { type: string; title: string; message: string } | null;
 
       const togglePublication = (checked: boolean) => {
         digestStatus = checked ? "delivered" : "generated";
@@ -1068,9 +1066,9 @@ describe("Challenger M5-2: Milestone 5 Admin App Revamp Empirical Challenge Suit
     });
 
     test("3.5 Pipeline Execution Action Buttons: Status transitions and contextual Alert banners", () => {
-      let status: "delivered" | "generated" | "pending" = "generated";
+      let status = "generated" as "delivered" | "generated" | "pending";
       let audioReady = false;
-      let feedback: { type: "success" | "info" | "warning"; title: string } | null = null;
+      let feedback = null as { type: "success" | "info" | "warning"; title: string } | null;
 
       // 1. Regenerate Audio action
       const handleRegenerateAudio = () => {

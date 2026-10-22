@@ -1,6 +1,9 @@
 "use client";
 
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
   Badge,
   Button,
   Card,
@@ -8,13 +11,15 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  EmptyState,
   Input,
   Label,
   Select,
   SelectOption,
 } from "@repo/ui";
-import { Layers, Search, Sparkles } from "lucide-react";
+import { AlertCircle, Layers, Search, Sparkles } from "lucide-react";
 import * as React from "react";
+import { exportSession } from "../lib/api";
 
 interface VectorSearchWorkbenchProps {
   clusterThreshold: number;
@@ -23,61 +28,27 @@ interface VectorSearchWorkbenchProps {
   onUpdateRankLimit: (val: number) => void;
   clusterCount: number | null;
   rankedCount: number | null;
+  /** The active playground session — the API stores the ranked signals under it. */
+  sessionId: string;
 }
 
-interface VectorMatch {
+interface RankedSignal {
   id: string;
   title: string;
   source: string;
-  category: string;
-  similarity: number;
-  snippet: string;
+  topics: string[];
   clusterId: string;
+  score: number;
+  whyItMatters: string;
 }
 
-const DEFAULT_MATCHES: VectorMatch[] = [
-  {
-    id: "m_01",
-    title: "Postgres 18 commits asynchronous I/O engine for direct block transfers",
-    source: "Hacker News",
-    category: "Databases",
-    similarity: 0.94,
-    snippet:
-      "Core committers enabled io_uring backed asynchronous I/O across buffer pools, achieving 3.8x throughput on NVMe arrays.",
-    clusterId: "cluster-db-kernel",
-  },
-  {
-    id: "m_02",
-    title: "Bun 1.3 stabilizes zero-copy native WebSocket transport",
-    source: "GitHub Releases",
-    category: "Runtimes",
-    similarity: 0.88,
-    snippet:
-      "Direct ring buffer writes allow over 1.2M concurrent persistent connections with sub-megabyte memory overhead.",
-    clusterId: "cluster-js-runtime",
-  },
-  {
-    id: "m_03",
-    title: "Gemini 2.5 Flash achieves sub-100ms TTFT on live streaming benchmark",
-    source: "Google DeepMind Blog",
-    category: "AI / LLM",
-    similarity: 0.82,
-    snippet:
-      "Speculative verification draft models deliver unprecedented conversational responsiveness for multi-modal agents.",
-    clusterId: "cluster-ai-inference",
-  },
-  {
-    id: "m_04",
-    title: "vLLM introduces speculative decoding draft model orchestration",
-    source: "arXiv Paper",
-    category: "AI / LLM",
-    similarity: 0.77,
-    snippet:
-      "Parallel token drafting slashes latency per token on distributed H100 GPU clusters by 42%.",
-    clusterId: "cluster-ai-inference",
-  },
-];
-
+/**
+ * Read the ranked signals the pipeline actually produced for this session.
+ *
+ * The API has no query-time vector-search route — clustering and ranking run
+ * as pipeline steps and their output is cached per session. This panel reads
+ * that real output and filters it locally; it never invents matches.
+ */
 export function VectorSearchWorkbench({
   clusterThreshold,
   rankLimit,
@@ -85,32 +56,71 @@ export function VectorSearchWorkbench({
   onUpdateRankLimit,
   clusterCount,
   rankedCount,
+  sessionId,
 }: VectorSearchWorkbenchProps) {
-  const [query, setQuery] = React.useState("asynchronous I/O kernel database runtime");
+  const [query, setQuery] = React.useState("");
   const [metric, setMetric] = React.useState("cosine");
   const [isSearching, setIsSearching] = React.useState(false);
-  const [matches, setMatches] = React.useState<VectorMatch[]>(DEFAULT_MATCHES);
+  const [signals, setSignals] = React.useState<RankedSignal[]>([]);
+  const [error, setError] = React.useState<string | null>(null);
+  const [hasSearched, setHasSearched] = React.useState(false);
 
-  const handleSearch = () => {
+  const handleSearch = async () => {
     setIsSearching(true);
-    setTimeout(() => {
+    setError(null);
+    setHasSearched(true);
+    try {
+      if (!sessionId) {
+        setSignals([]);
+        setError(
+          "There is no active pipeline session. Start a session and run the rank step before querying the semantic index.",
+        );
+        return;
+      }
+
+      const exported = await exportSession(sessionId);
+      const ranked = exported?.tier3_ranked as unknown;
+
+      if (!Array.isArray(ranked) || ranked.length === 0) {
+        setSignals([]);
+        setError(
+          "The API has no ranked signals cached for this session yet. Run the rank step (Tier 3) and try again.",
+        );
+        return;
+      }
+
+      setSignals(
+        ranked.map((entry: RankedEntry) => ({
+          id: entry.story?.id ?? `${entry.story?.clusterId ?? "story"}-${entry.position ?? 0}`,
+          title: entry.story?.canonicalTitle ?? "Untitled signal",
+          source: entry.story?.dominantSource ?? "Unknown source",
+          topics: entry.story?.topics ?? [],
+          clusterId: entry.story?.clusterId ?? "—",
+          score: typeof entry.rankScore === "number" ? entry.rankScore : 0,
+          whyItMatters: entry.whyItMatters ?? "",
+        })),
+      );
+    } catch {
+      setSignals([]);
+      setError("The API could not be reached, so no semantic index results are shown.");
+    } finally {
       setIsSearching(false);
-      // Re-score based on query
-      const qLower = query.toLowerCase();
-      const updated = DEFAULT_MATCHES.map((m) => {
-        const bonus =
-          m.title.toLowerCase().includes(qLower.slice(0, 4)) ||
-          m.snippet.toLowerCase().includes(qLower.slice(0, 4))
-            ? 0.05
-            : -0.02;
-        return {
-          ...m,
-          similarity: Math.min(0.99, Math.max(0.65, Number((m.similarity + bonus).toFixed(2)))),
-        };
-      }).sort((a, b) => b.similarity - a.similarity);
-      setMatches(updated);
-    }, 400);
+    }
   };
+
+  // The API has no query parameter for the semantic index, so the query text
+  // filters the real ranked signals locally.
+  const visibleSignals = React.useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return signals;
+    return signals.filter(
+      (s) =>
+        s.title.toLowerCase().includes(q) ||
+        s.source.toLowerCase().includes(q) ||
+        s.topics.some((t) => t.toLowerCase().includes(q)) ||
+        s.whyItMatters.toLowerCase().includes(q),
+    );
+  }, [signals, query]);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
@@ -136,9 +146,14 @@ export function VectorSearchWorkbench({
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search semantic signals..."
+                placeholder="Filter the ranked signals..."
                 leftIcon={<Search className="h-4 w-4" />}
+                aria-describedby="vector-query-note"
               />
+              <p id="vector-query-note" className="text-[11px] text-muted-foreground">
+                The API exposes no query-time vector search route. The query filters the ranked
+                signals the pipeline produced for this session.
+              </p>
             </div>
 
             {/* Distance Metric */}
@@ -213,7 +228,7 @@ export function VectorSearchWorkbench({
               <div>
                 <CardTitle className="text-sm font-bold flex items-center gap-2">
                   <Sparkles className="h-4 w-4 text-blue-500" />
-                  <span>Nearest Neighbor Signals ({matches.length})</span>
+                  <span>Nearest Neighbor Signals ({visibleSignals.length})</span>
                 </CardTitle>
                 <CardDescription className="text-xs">
                   Embedding distance vectors ranked by pgvector cosine similarity.
@@ -228,43 +243,84 @@ export function VectorSearchWorkbench({
           </CardHeader>
 
           <CardContent className="space-y-3">
-            {matches.map((item) => {
-              const isHighConfidence = item.similarity >= 0.85;
-              return (
-                <div
-                  key={item.id}
-                  className="p-3.5 rounded-xl border border-border/50 bg-muted/20 space-y-2 text-xs"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="font-semibold text-foreground text-sm leading-snug">
-                      {item.title}
-                    </div>
-                    <Badge
-                      variant={isHighConfidence ? "success" : "warning"}
-                      className="shrink-0 font-mono text-[11px]"
-                    >
-                      {(item.similarity * 100).toFixed(0)}% match
-                    </Badge>
-                  </div>
+            {error && (
+              <Alert variant="destructive" role="alert">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Semantic Index Unavailable</AlertTitle>
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
 
-                  <p className="text-muted-foreground text-xs leading-relaxed">{item.snippet}</p>
-
-                  <div className="flex items-center justify-between pt-1 border-t border-border/30 text-[11px] text-muted-foreground">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-foreground">{item.source}</span>
-                      <span>•</span>
-                      <span>{item.category}</span>
+            {!error && visibleSignals.length === 0 ? (
+              <EmptyState
+                title={hasSearched ? "No matching signals" : "No semantic index loaded"}
+                description={
+                  hasSearched
+                    ? "None of the ranked signals for this session match the current query."
+                    : "Run the rank step for the active session, then query the semantic index to see the real ranked signals."
+                }
+                icon={<Search className="h-7 w-7 text-muted-foreground opacity-60" />}
+              />
+            ) : (
+              visibleSignals.map((item) => {
+                const isHighConfidence = item.score >= 0.85;
+                return (
+                  <div
+                    key={item.id}
+                    className="p-3.5 rounded-xl border border-border/50 bg-muted/20 space-y-2 text-xs"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="font-semibold text-foreground text-sm leading-snug">
+                        {item.title}
+                      </div>
+                      <Badge
+                        variant={isHighConfidence ? "success" : "warning"}
+                        className="shrink-0 font-mono text-[11px]"
+                      >
+                        {(item.score * 100).toFixed(0)}% match
+                      </Badge>
                     </div>
-                    <span className="font-mono text-[10px] bg-muted/60 px-1.5 py-0.5 rounded">
-                      {item.clusterId}
-                    </span>
+
+                    {item.whyItMatters && (
+                      <p className="text-muted-foreground text-xs leading-relaxed">
+                        {item.whyItMatters}
+                      </p>
+                    )}
+
+                    <div className="flex items-center justify-between pt-1 border-t border-border/30 text-[11px] text-muted-foreground">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-foreground">{item.source}</span>
+                        {item.topics.length > 0 && (
+                          <>
+                            <span>•</span>
+                            <span>{item.topics.join(", ")}</span>
+                          </>
+                        )}
+                      </div>
+                      <span className="font-mono text-[10px] bg-muted/60 px-1.5 py-0.5 rounded">
+                        {item.clusterId}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </CardContent>
         </Card>
       </div>
     </div>
   );
+}
+
+interface RankedEntry {
+  position?: number;
+  rankScore?: number;
+  whyItMatters?: string;
+  story?: {
+    id?: string;
+    canonicalTitle?: string;
+    dominantSource?: string;
+    topics?: string[];
+    clusterId?: string;
+  };
 }

@@ -5,9 +5,10 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-// @ts-expect-error
+// The workspace ships React without a hoisted root install, so the runtime is
+// imported from the package that owns it. The types come from the ambient
+// declarations in ./react-modules.d.ts (@types/react + @types/react-dom).
 import * as React from "../../../packages/ui/node_modules/react";
-// @ts-expect-error
 import { renderToStaticMarkup } from "../../../packages/ui/node_modules/react-dom/server";
 
 export { React };

@@ -1,6 +1,6 @@
 import { createApiClient } from "@repo/api-client";
 import type { Metadata } from "next";
-import { BlogIndexClient, type BlogPostItem, FALLBACK_BLOG_POSTS } from "./blog-index-client";
+import { BlogIndexClient, type BlogPostItem } from "./blog-index-client";
 
 export const metadata: Metadata = {
   title: "Intelligence & Architecture Briefings — First Cup Tech",
@@ -8,15 +8,21 @@ export const metadata: Metadata = {
     "Curated technology briefings, architecture deep-dives, and AI engineering analysis synthesized for tech leaders.",
 };
 
-async function getBlogPosts(): Promise<BlogPostItem[]> {
+type BlogPostsResult = { posts: BlogPostItem[]; error?: string };
+
+async function getBlogPosts(): Promise<BlogPostsResult> {
   try {
     const client = createApiClient();
     const res = await client.blog.posts.$get({ query: { limit: 20 } });
-    if (!res.ok) return FALLBACK_BLOG_POSTS;
+    if (!res.ok) {
+      return { posts: [], error: `The briefing archive is unavailable (HTTP ${res.status}).` };
+    }
     const data = await res.json();
-    if (!data.posts || data.posts.length === 0) return FALLBACK_BLOG_POSTS;
+    if (!data.posts || data.posts.length === 0) {
+      return { posts: [], error: undefined };
+    }
 
-    return data.posts.map((p, idx) => {
+    const posts = data.posts.map((p, idx) => {
       const category: "ai" | "engineering" | "product" | "productivity" =
         p.tags?.includes("ai") || p.tags?.includes("voice")
           ? "ai"
@@ -51,12 +57,13 @@ async function getBlogPosts(): Promise<BlogPostItem[]> {
         isFeatured: idx === 0,
       };
     });
+    return { posts };
   } catch {
-    return FALLBACK_BLOG_POSTS;
+    return { posts: [], error: "The briefing archive could not be loaded." };
   }
 }
 
 export default async function BlogPage() {
-  const posts = await getBlogPosts();
-  return <BlogIndexClient initialPosts={posts} />;
+  const { posts, error } = await getBlogPosts();
+  return <BlogIndexClient initialPosts={posts} initialError={error} />;
 }

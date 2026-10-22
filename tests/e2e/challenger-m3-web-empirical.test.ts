@@ -391,20 +391,28 @@ describe("Challenger M3: Web App Revamp Empirical Challenge Suite", () => {
   // Area 4: Blog Suite (`apps/web/src/app/blog/page.tsx` & `[slug]/page.tsx`)
   // =========================================================================
   describe("Area 4: Blog Suite Verification", () => {
-    test("4.1 Blog index renders Featured Article Hero, Tabs, and article grid", async () => {
+    test("4.1 Blog index renders the archive shell and never fabricates articles", async () => {
       const BlogPage = await getBlogPage();
       const element = await BlogPage();
       const html = renderToStaticMarkup(element);
       const inspector = inspectHtml(html);
 
-      // Hero
+      // Page header
       expect(
         inspector.contains("Curated Technology &amp; Architecture Briefings") ||
           inspector.contains("Curated Technology & Architecture Briefings"),
       ).toBeTrue();
-      expect(inspector.contains("Featured Intelligence")).toBeTrue();
-      expect(inspector.contains("The State of Open Source AI Quantization in 2026")).toBeTrue();
-      expect(inspector.contains("Read Briefing")).toBeTrue();
+      expect(inspector.contains("Executive Intelligence Archive")).toBeTrue();
+
+      // The API is not reachable from the test environment, so the page has to
+      // surface the load failure instead of substituting fabricated articles.
+      expect(inspector.contains("Briefings Unavailable")).toBeTrue();
+      expect(inspector.contains("No briefings found matching your filter criteria.")).toBeTrue();
+
+      // ... and therefore no featured hero and no fallback articles.
+      expect(inspector.contains("Featured Intelligence")).toBeFalse();
+      expect(inspector.contains("The State of Open Source AI Quantization in 2026")).toBeFalse();
+      expect(inspector.contains("Read Briefing")).toBeFalse();
 
       // Category filter tabs
       expect(inspector.hasRole("tablist")).toBeTrue();
@@ -414,15 +422,6 @@ describe("Challenger M3: Web App Revamp Empirical Challenge Suite", () => {
 
       // Search input
       expect(inspector.hasAttribute("placeholder", "Search briefings or tags...")).toBeTrue();
-
-      // Fallback articles in grid
-      expect(inspector.contains("Next.js 16 and Bun 1.3: The Serverless Convergence")).toBeTrue();
-      expect(
-        inspector.contains("Sub-300ms Voice Synthesis: The Mechanics of Real-Time Audio AI"),
-      ).toBeTrue();
-      expect(
-        inspector.contains("Valkey 8.0 Benchmarks: Replacing Redis in High-Concurrency Queues"),
-      ).toBeTrue();
 
       // Newsletter banner
       expect(inspector.contains("Never Miss a Breakthrough Architecture Shift")).toBeTrue();

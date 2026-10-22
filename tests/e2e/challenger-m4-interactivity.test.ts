@@ -19,7 +19,8 @@
  *    - Save feedback alert appearance, dynamic topic count, and auto-dismiss on edit.
  *    - Reset defaults action restoring pristine baseline.
  * 3. Billing Modal & Quota:
- *    - Active plan card rendering ($29.00/mo, Active Trial, Paddle Managed).
+ *    - Active plan card rendering the plan/status the API reports (no fabricated
+ *      price, quota meter or invoice row).
  *    - Plan upgrade modal opening/closing, upgrade tier matrix, Current vs Popular badges.
  *    - Usage quota meter mathematical oracle: Briefings (86.7%), Audio (78.0%), Alerts (28.4%), Archive (9.0%).
  *    - Quota meter edge-case stress harness (0%, 100%, overflow, division-by-zero).
@@ -116,15 +117,65 @@ mock.module("@repo/api-client", () => ({
         $put: async () => ({ ok: true }),
       },
     },
+    // The billing page reads the real subscription. The mock returns a
+    // PRO/trialing account so the test can assert that the page renders the
+    // values the API reports — and only those.
+    billing: {
+      subscription: {
+        $get: async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            plan: "PRO",
+            subscriptionStatus: "trialing",
+            paddleCustomerId: "ctm_console_test",
+            paddleSubscriptionId: "sub_console_test",
+            trialEndsAt: "2026-11-14T00:00:00.000Z",
+          }),
+        }),
+      },
+    },
   }),
 }));
 
 // Import console pages and components
 const DashboardPage = (await import("../../apps/console/src/app/dashboard/page")).default;
+const { AudioDigestPlayer } = await import(
+  "../../apps/console/src/app/dashboard/components/audio-digest-player"
+);
 const PreferencesPage = (await import("../../apps/console/src/app/preferences/page")).default;
 const BillingPage = (await import("../../apps/console/src/app/billing/page")).default;
 
 import { ThemeProvider } from "../../packages/ui/src";
+
+/**
+ * Props for the dashboard audio player, with a digest that has a 225s brief.
+ */
+const AUDIO_PLAYER_PROPS = {
+  digest: {
+    id: "dig_audio_01",
+    title: "Daily Executive Briefing",
+    digestDate: "2026-01-01",
+    items: [],
+    audioBrief: {
+      id: "aud_01",
+      script: "Good morning! Here is your briefing.",
+      audioUrl: "https://storage.example.com/audio/aud_01.mp3",
+      durationSec: 225,
+    },
+  },
+  isPlaying: false,
+  currentTime: 0,
+  playbackSpeed: 1,
+  showTranscript: false,
+  onTogglePlay: () => {},
+  onSkipBack: () => {},
+  onSkipForward: () => {},
+  onCycleSpeed: () => {},
+  onSeek: () => {},
+  onNudge: () => {},
+  onToggleTranscript: () => {},
+};
 
 // ============================================================================
 // Test Suite: Challenger M4 Interactivity & State
@@ -148,7 +199,11 @@ describe("Challenger M4-2: Interactivity & State Empirical Challenge Suite", () 
   // =========================================================================
   describe("Area 1: Audio Player State", () => {
     test("1.1 Initial audio player renders with paused state, 0:00 elapsed, and Play button", () => {
-      const inspector = inspectHtml(el(ThemeProvider, null, el(DashboardPage)));
+      // The dashboard fetches its digest in an effect, so the player is
+      // rendered directly with a digest to assert the player's own markup.
+      const inspector = inspectHtml(
+        el(ThemeProvider, null, el(AudioDigestPlayer, AUDIO_PLAYER_PROPS)),
+      );
 
       // Audio card title and badge (handles HTML entity &#x27;)
       expect(inspector.contains(/Today(?:'|&#x27;|&apos;)s Audio Digest/)).toBeTrue();
@@ -170,6 +225,25 @@ describe("Challenger M4-2: Interactivity & State Empirical Challenge Suite", () 
 
       // Transcript initially collapsed
       expect(inspector.contains("Narration Script & Synthesis")).toBeFalse();
+    });
+
+    test("1.1b Audio player states that no brief was generated when the digest has none", () => {
+      const inspector = inspectHtml(
+        el(
+          ThemeProvider,
+          null,
+          el(AudioDigestPlayer, {
+            ...AUDIO_PLAYER_PROPS,
+            digest: { id: "dig_1", title: null, digestDate: "2026-01-01", items: [] },
+          }),
+        ),
+      );
+
+      expect(
+        inspector.contains("No audio brief has been generated for this digest yet."),
+      ).toBeTrue();
+      // No playback controls without an audio brief.
+      expect(inspector.contains('aria-label="Play briefing audio"')).toBeFalse();
     });
 
     test("1.2 Play/pause toggle state transition accurately switches icon, aria-label, and status indicator", () => {
@@ -426,7 +500,9 @@ describe("Challenger M4-2: Interactivity & State Empirical Challenge Suite", () 
 
     test("2.2 Topic catalog state machine: toggling switches updates topic array and active count", () => {
       let selectedTopics = ["ai", "systems", "backend", "database"];
-      let saveStatus: "idle" | "success" | "error" = "success";
+      // The `as` union keeps TypeScript from narrowing the variable to the literal
+      // it was initialised with (the state is mutated inside a closure).
+      let saveStatus = "success" as "idle" | "success" | "error";
 
       const toggleTopic = (id: string, checked: boolean) => {
         saveStatus = "idle";
@@ -515,7 +591,7 @@ describe("Challenger M4-2: Interactivity & State Empirical Challenge Suite", () 
 
     test("2.7 Save preferences workflow triggers optimistic success state and alert appearance", () => {
       let isSaving = false;
-      let saveStatus: "idle" | "success" | "error" = "idle";
+      let saveStatus = "idle" as "idle" | "success" | "error";
       const selectedTopics = ["ai", "systems", "database"];
 
       const handleSave = () => {
@@ -578,30 +654,52 @@ describe("Challenger M4-2: Interactivity & State Empirical Challenge Suite", () 
   // Area 3: Billing Modal & Quota Meters
   // =========================================================================
   describe("Area 3: Billing Modal & Quota", () => {
-    test("3.1 BillingPage initial render mounts plan overview, quota meters, and invoice history", () => {
+    test("3.1 BillingPage renders only what the API reports, and never fabricates the rest", () => {
       const inspector = inspectHtml(el(ThemeProvider, null, el(BillingPage)));
 
-      // Plan Overview
-      expect(inspector.contains("Executive Pro Plan")).toBeTrue();
-      expect(inspector.contains("Active Trial")).toBeTrue();
+      // Plan Overview — the page reads GET /billing/subscription on mount.
+      // The rendered markup below is the pre-load state (the harness renders
+      // with renderToStaticMarkup, so effects do not run), which must already
+      // be honest: no price, no plan, no payment method is invented.
       expect(inspector.contains("Paddle Managed")).toBeTrue();
-      expect(inspector.contains("$29.00")).toBeTrue();
+      expect(inspector.contains("price not reported by the API")).toBeTrue();
+      expect(inspector.contains("Not reported by the API")).toBeTrue();
       expect(inspector.contains("Manage via Paddle")).toBeTrue();
       expect(inspector.contains("Upgrade / Change Plan")).toBeTrue();
 
-      // Quota Meters
-      expect(inspector.contains("Monthly Quota &amp; Consumption")).toBeTrue();
-      expect(inspector.contains("Daily Briefings")).toBeTrue();
-      expect(inspector.contains("Voice Audio Minutes")).toBeTrue();
-      expect(inspector.contains("Instant Alerts &amp; Webhooks")).toBeTrue();
-      expect(inspector.contains("Archived Briefings")).toBeTrue();
+      // The subscription is fetched from the real endpoint.
+      const billingSrc = fs.readFileSync(
+        path.join(APPS_PATH, "console/src/app/billing/page.tsx"),
+        "utf8",
+      );
+      expect(billingSrc.includes("client.billing.subscription.$get()")).toBeTrue();
 
-      // Invoice History
+      // Quota card — the API reports no usage, so no counters are rendered.
+      expect(inspector.contains("Monthly Quota &amp; Consumption")).toBeTrue();
+      expect(inspector.contains("does not report quota usage")).toBeTrue();
+      expect(inspector.contains("Daily Briefings")).toBeFalse();
+      expect(inspector.contains("Voice Audio Minutes")).toBeFalse();
+      expect(inspector.contains("Instant Alerts &amp; Webhooks")).toBeFalse();
+      expect(inspector.contains("Archived Briefings")).toBeFalse();
+
+      // Invoice History — no invoices are reported, so no rows are rendered.
       expect(inspector.contains("Billing &amp; Invoice History")).toBeTrue();
-      expect(inspector.contains("INV-2026-004")).toBeTrue();
-      expect(inspector.contains("INV-2026-003")).toBeTrue();
-      expect(inspector.contains("INV-2026-002")).toBeTrue();
-      expect(inspector.contains("INV-2026-001")).toBeTrue();
+      expect(inspector.contains("does not report invoices")).toBeTrue();
+      expect(inspector.contains("INV-2026-004")).toBeFalse();
+      expect(inspector.contains("INV-2026-003")).toBeFalse();
+      expect(inspector.contains("INV-2026-002")).toBeFalse();
+      expect(inspector.contains("INV-2026-001")).toBeFalse();
+
+      // The plan badge is bound to the API response, not hard-coded.
+      expect(billingSrc.includes("subscription?.plan")).toBeTrue();
+      expect(inspector.contains("$29.00")).toBeFalse();
+      expect(inspector.contains("Active Trial")).toBeFalse();
+      expect(inspector.contains("4242")).toBeFalse();
+
+      // The hard-coded subscription summary is gone from the source too.
+      expect(billingSrc.includes('"Executive Pro Plan"')).toBeFalse();
+      expect(billingSrc.includes("Active Trial")).toBeFalse();
+      expect(billingSrc.includes("4242")).toBeFalse();
     });
 
     test("3.2 Plan upgrade modal: verifies Dialog structure, upgrade tier cards, and close action", () => {
@@ -627,47 +725,33 @@ describe("Challenger M4-2: Interactivity & State Empirical Challenge Suite", () 
       expect(billingSrc.includes("tier.popular")).toBeTrue();
     });
 
-    test("3.3 Quota meter calculation oracle: strictly validates percentage math and CSS progress widths", () => {
-      const calculateMeter = (current: number, max: number): { pct: number; pctStr: string } => {
-        const pct = (current / max) * 100;
-        return {
-          pct,
-          pctStr: `${pct.toFixed(1)}%`,
-        };
-      };
+    test("3.3 Quota card oracle: the page states the API reports no usage instead of inventing counters", () => {
+      const inspector = inspectHtml(el(ThemeProvider, null, el(BillingPage)));
 
-      // 1. Daily Briefings: 26 / 30 briefs = 86.666...% -> 86.7%
-      const m1 = calculateMeter(26, 30);
-      expect(m1.pctStr).toBe("86.7%");
-
-      // 2. Voice Audio Minutes: 78 / 100 mins = 78.0%
-      const m2 = calculateMeter(78, 100);
-      expect(m2.pctStr).toBe("78.0%");
-
-      // 3. Instant Alerts & Webhooks: 1,420 / 5,000 = 28.4%
-      const m3 = calculateMeter(1420, 5000);
-      expect(m3.pctStr).toBe("28.4%");
-
-      // 4. Archived Briefings: 45 / 500 = 9.0%
-      const m4 = calculateMeter(45, 500);
-      expect(m4.pctStr).toBe("9.0%");
+      // The honest state is asserted directly, and the fabricated percentages
+      // that used to be hard-coded are asserted to be absent.
+      expect(inspector.contains("does not report quota usage")).toBeTrue();
+      expect(inspector.contains("86.7%")).toBeFalse();
+      expect(inspector.contains("78.0%")).toBeFalse();
+      expect(inspector.contains("28.4%")).toBeFalse();
+      expect(inspector.contains("9.0%")).toBeFalse();
+      expect(inspector.contains("1,420")).toBeFalse();
+      expect(inspector.contains("26")).toBeFalse();
     });
 
-    test("3.4 Quota meter edge-case stress test: 0%, 100%, overflow, and boundary behavior", () => {
-      const calculateMeter = (current: number, max: number): string => {
-        if (max <= 0) return "0.0%";
-        const pct = Math.max(0, Math.min(100, (current / max) * 100));
-        return `${pct.toFixed(1)}%`;
-      };
+    test("3.4 Quota stress: no usage percentage is rendered for any account state", () => {
+      // Whatever the API would report, the page must not invent a number.
+      // The percentage-shaped strings are checked across the rendered output.
+      const inspector = inspectHtml(el(ThemeProvider, null, el(BillingPage)));
+      const percentage = /(\d+(\.\d+)?%)/g;
+      const matches = inspector.html.match(percentage);
 
-      expect(calculateMeter(0, 100)).toBe("0.0%");
-      expect(calculateMeter(100, 100)).toBe("100.0%");
-      expect(calculateMeter(150, 100)).toBe("100.0%"); // clamped
-      expect(calculateMeter(-10, 100)).toBe("0.0%"); // clamped
-      expect(calculateMeter(50, 0)).toBe("0.0%"); // zero max
+      // The only percentages that may appear come from the plan catalogue's
+      // discount/pricing copy — none of the quota meters.
+      expect(matches ?? []).toHaveLength(0);
     });
 
-    test("3.5 Invoice History Table: verifies 6 table headers, 4 invoice rows, status badges, and PDF buttons", () => {
+    test("3.5 Invoice History Table: keeps the 6 headers but renders no invoice rows", () => {
       const inspector = inspectHtml(el(ThemeProvider, null, el(BillingPage)));
 
       // Table Headers
@@ -678,18 +762,13 @@ describe("Challenger M4-2: Interactivity & State Empirical Challenge Suite", () 
       expect(inspector.contains("Status")).toBeTrue();
       expect(inspector.contains("Receipt")).toBeTrue();
 
-      // Invoice Rows
-      expect(inspector.contains("INV-2026-004")).toBeTrue();
-      expect(inspector.contains("INV-2026-003")).toBeTrue();
-      expect(inspector.contains("INV-2026-002")).toBeTrue();
-      expect(inspector.contains("INV-2026-001")).toBeTrue();
-
-      // Status badges
-      expect(inspector.contains("Paid")).toBeTrue();
-      expect(inspector.contains("Settled")).toBeTrue();
-
-      // Receipts
-      expect(inspector.contains("PDF")).toBeTrue();
+      // The API reports no invoices, so the table carries an honest empty
+      // state instead of four fabricated rows with PDF buttons.
+      expect(inspector.contains("No invoices are reported by the API")).toBeTrue();
+      expect(inspector.contains("INV-2026-004")).toBeFalse();
+      expect(inspector.contains("Paid")).toBeFalse();
+      expect(inspector.contains("Settled")).toBeFalse();
+      expect(inspector.contains("PDF")).toBeFalse();
     });
   });
 
@@ -766,8 +845,15 @@ describe("Challenger M4-2: Interactivity & State Empirical Challenge Suite", () 
       },
     ];
 
+    // `summary` and `whyItMatters` are nullable in the database and in the
+    // console dashboard, so the oracle has to accept items without them.
+    type DigestItemLike = Omit<(typeof TEST_ITEMS)[number], "summary" | "whyItMatters"> & {
+      summary: string | null;
+      whyItMatters: string | null;
+    };
+
     const filterOracle = (
-      items: typeof TEST_ITEMS,
+      items: DigestItemLike[],
       searchQuery: string,
       activeTab: string,
       savedIds: Set<string>,
@@ -869,15 +955,21 @@ describe("Challenger M4-2: Interactivity & State Empirical Challenge Suite", () 
       const results = filterOracle(TEST_ITEMS, query, "all", savedIds);
       expect(results.length).toBe(0);
 
-      // Verify EmptyState condition in dashboard source
+      // Verify EmptyState condition in the intelligence feed source
+      const feedSrc = fs.readFileSync(
+        path.join(APPS_PATH, "console/src/app/dashboard/components/intelligence-feed.tsx"),
+        "utf8",
+      );
       const dashboardSrc = fs.readFileSync(
         path.join(APPS_PATH, "console/src/app/dashboard/page.tsx"),
         "utf8",
       );
 
-      expect(dashboardSrc.includes('title="No matching stories found"')).toBeTrue();
-      expect(dashboardSrc.includes("Clear Search Filter")).toBeTrue();
-      expect(dashboardSrc.includes('onClick={() => setSearchQuery("")}')).toBeTrue();
+      expect(feedSrc.includes('title="No matching stories found"')).toBeTrue();
+      expect(feedSrc.includes("Clear Search Filter")).toBeTrue();
+      expect(feedSrc.includes("onClick={onClearSearch}")).toBeTrue();
+      // The page wires the clear action back to the search query.
+      expect(dashboardSrc.includes('onClearSearch={() => setSearchQuery("")}')).toBeTrue();
     });
 
     test("4.4 Topic tab filtering accurately partitions items across categories", () => {
@@ -937,16 +1029,16 @@ describe("Challenger M4-2: Interactivity & State Empirical Challenge Suite", () 
       expect(filterOracle(TEST_ITEMS, "", "saved", savedIds).length).toBe(0);
 
       // Verify EmptyState condition for saved
-      const dashboardSrc = fs.readFileSync(
-        path.join(APPS_PATH, "console/src/app/dashboard/page.tsx"),
+      const feedSrc = fs.readFileSync(
+        path.join(APPS_PATH, "console/src/app/dashboard/components/intelligence-feed.tsx"),
         "utf8",
       );
-      expect(dashboardSrc.includes('title="No saved stories yet"')).toBeTrue();
+      expect(feedSrc.includes('title="No saved stories yet"')).toBeTrue();
       expect(
-        dashboardSrc.includes("Browse Today&apos;s Stories") ||
-          dashboardSrc.includes("Browse Today's Stories"),
+        feedSrc.includes("Browse Today&apos;s Stories") ||
+          feedSrc.includes("Browse Today's Stories"),
       ).toBeTrue();
-      expect(dashboardSrc.includes('onClick={() => setActiveTab("all")}')).toBeTrue();
+      expect(feedSrc.includes('onClick={() => onTabChange("all")}')).toBeTrue();
     });
 
     test("4.6 Combined search + tab filtering: strictly verifies intersection logic", () => {
@@ -1045,16 +1137,25 @@ describe("Challenger M4-2: Interactivity & State Empirical Challenge Suite", () 
               source: "blog",
               topics: ["ai"],
             },
-          ].filter((item) => {
-            return (
-              !queryTrimmed ||
-              item.title.toLowerCase().includes(queryTrimmed) ||
-              (item.summary?.toLowerCase().includes(queryTrimmed) ?? false) ||
-              (item.whyItMatters?.toLowerCase().includes(queryTrimmed) ?? false) ||
-              item.source.toLowerCase().includes(queryTrimmed) ||
-              item.topics.some((t) => t.toLowerCase().includes(queryTrimmed))
-            );
-          });
+          ].filter(
+            (item: {
+              id: string;
+              title: string;
+              summary: string | null;
+              whyItMatters: string | null;
+              source: string;
+              topics: string[];
+            }) => {
+              return (
+                !queryTrimmed ||
+                item.title.toLowerCase().includes(queryTrimmed) ||
+                (item.summary?.toLowerCase().includes(queryTrimmed) ?? false) ||
+                (item.whyItMatters?.toLowerCase().includes(queryTrimmed) ?? false) ||
+                item.source.toLowerCase().includes(queryTrimmed) ||
+                item.topics.some((t) => t.toLowerCase().includes(queryTrimmed))
+              );
+            },
+          );
         }).not.toThrow();
       }
     });
@@ -1063,8 +1164,14 @@ describe("Challenger M4-2: Interactivity & State Empirical Challenge Suite", () 
       // 1. Dashboard page
       currentPathname = "/dashboard";
       const dashInspector = inspectHtml(el(ThemeProvider, null, el(DashboardPage)));
-      expect(dashInspector.contains("Good morning, Alex")).toBeTrue();
+      // The greeting is built from the signed-in profile; without a session it
+      // falls back to the generic greeting.
+      expect(dashInspector.contains("Good morning")).toBeTrue();
       expect(dashInspector.contains(/Today(?:'|&#x27;|&apos;)s Audio Digest/)).toBeTrue();
+      // The player states that no brief was generated instead of assuming one.
+      expect(
+        dashInspector.contains("No audio brief has been generated for this digest yet."),
+      ).toBeTrue();
 
       // 2. Preferences page
       currentPathname = "/preferences";
@@ -1074,7 +1181,8 @@ describe("Challenger M4-2: Interactivity & State Empirical Challenge Suite", () 
       // 3. Billing page
       currentPathname = "/billing";
       const billInspector = inspectHtml(el(ThemeProvider, null, el(BillingPage)));
-      expect(billInspector.contains("Executive Pro Plan")).toBeTrue();
+      expect(billInspector.contains("Paddle Managed")).toBeTrue();
+      expect(billInspector.contains("price not reported by the API")).toBeTrue();
     });
   });
 });

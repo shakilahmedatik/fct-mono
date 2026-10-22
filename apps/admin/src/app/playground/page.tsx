@@ -129,6 +129,7 @@ export default function PlaygroundPage() {
             onUpdateRankLimit={(val) => p.updateParam("rankLimit", val)}
             clusterCount={p.clusterCount}
             rankedCount={p.rankedCount}
+            sessionId={p.sessionId}
           />
         </TabsContent>
 

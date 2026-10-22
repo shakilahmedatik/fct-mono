@@ -350,19 +350,20 @@ describe("Challenger M4: Subscriber Console Shell, Navigation & Route Isolation 
       expect(sidebarSrc.includes("router.push(href);")).toBeTrue();
     });
 
-    test("2.4 User profile footer contains FC avatar, status badge, segmented ThemeToggle, and Sign Out action", () => {
+    test("2.4 User profile footer renders the live profile, plan badge, segmented ThemeToggle, and Sign Out action", () => {
       const inspector = inspectHtml(el(ThemeProvider, null, el(ConsoleSidebar)));
 
-      // FC Avatar initials
-      expect(inspector.contains("FC")).toBeTrue();
-      expect(inspector.contains("Engineering Lead")).toBeTrue();
-      expect(inspector.contains("Pro Member")).toBeTrue();
+      // The avatar and the name come from the signed-in profile
+      // (GET /user/me). With no session loaded the sidebar renders the
+      // placeholders instead of a hard-coded identity.
+      expect(inspector.contains("—")).toBeTrue();
+      expect(inspector.contains("Loading")).toBeTrue();
+      expect(inspector.contains("Subscriber")).toBeTrue();
 
-      // PRO badge
-      expect(inspector.contains("PRO")).toBeTrue();
+      // Plan badge (defaults to FREE while the profile is loading)
+      expect(inspector.contains("FREE")).toBeTrue();
 
       // External marketing link
-      expect(inspector.contains('href="http://localhost:3000"')).toBeTrue();
       expect(inspector.contains("Marketing Site")).toBeTrue();
 
       // Sign Out button
@@ -454,10 +455,16 @@ describe("Challenger M4: Subscriber Console Shell, Navigation & Route Isolation 
 
       const html = renderToStaticMarkup(el(ThemeProvider, null, el(DashboardPage)));
 
-      // Deterministic initial date rendered on server
-      expect(html.includes("Wednesday, October 14, 2026")).toBeTrue();
-      expect(html.includes("Good morning, Alex")).toBeTrue();
-      expect(html.includes("PRO SUBSCRIBER")).toBeTrue();
+      // The formatted date is filled in after mount, so the server markup must
+      // not contain one - otherwise the first client render would differ from
+      // the server HTML (hydration mismatch).
+      expect(html.includes("Wednesday, October 14, 2026")).toBeFalse();
+      expect(html.includes("Monday, January 1, 2024")).toBeFalse();
+
+      // The greeting falls back to the generic one without a signed-in profile.
+      expect(html.includes("Good morning")).toBeTrue();
+      // Plan badge (defaults to FREE without a profile)
+      expect(html.includes("FREE SUBSCRIBER")).toBeTrue();
       // Skeleton placeholders rendered during initial load
       expect(html.includes("animate-pulse") || html.includes("Skeleton")).toBeTrue();
 
@@ -472,8 +479,13 @@ describe("Challenger M4: Subscriber Console Shell, Navigation & Route Isolation 
       expect(prefHtml.includes("Tracked Tech Topics")).toBeTrue();
 
       const billHtml = renderToStaticMarkup(el(ThemeProvider, null, el(BillingPage)));
-      expect(billHtml.includes("Executive Pro Plan")).toBeTrue();
-      expect(billHtml.includes("$29.00")).toBeTrue();
+      // Under SSR the effect that loads the subscription has not run, so the
+      // page renders its "not reported yet" state. The price is never
+      // fabricated.
+      expect(billHtml.includes("Subscription &amp; Billing")).toBeTrue();
+      expect(billHtml.includes("Paddle Managed")).toBeTrue();
+      expect(billHtml.includes("price not reported by the API")).toBeTrue();
+      expect(billHtml.includes("$29.00")).toBeFalse();
 
       _dom = setupDOM();
     });

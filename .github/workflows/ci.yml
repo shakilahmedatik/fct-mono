@@ -14,6 +14,38 @@ jobs:
   quality-gate:
     name: Lint, Typecheck, Test & Build
     runs-on: ubuntu-latest
+
+    # The test suite previously ran with no database and no Redis available,
+    # so no integration test could possibly pass — the service URLs were
+    # configured but nothing was listening on them.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: first_cup_tech
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d first_cup_tech"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: valkey/valkey:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 10s
+          --health-timeout 3s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/first_cup_tech
+      REDIS_URL: redis://localhost:6379
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -32,11 +64,43 @@ jobs:
       - name: TypeScript Strict Typecheck
         run: bun run typecheck
 
+      - name: Typecheck the root test suite
+        # `tests/` is also a workspace package (`@repo/tests`), so `turbo
+        # typecheck` covers it — but it is invoked explicitly as well so a
+        # regression cannot hide behind a turbo cache hit.
+        run: bunx tsc -p tests/tsconfig.json --noEmit
+
       - name: Automated Test Suite
         run: bun test
-        env:
-          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/first_cup_tech"
-          REDIS_URL: "redis://localhost:6379"
+
+      - name: Apply Database Migrations
+        run: bun run db:migrate
+
+      - name: Check schema drift
+        # A schema change without a matching migration must fail the build.
+        # `drizzle-kit generate` is not enough on its own: it exits 0 whether
+        # or not it produced a migration. The check is whether it CHANGED
+        # anything under drizzle/migrations — a new or modified migration file
+        # means the schema and the migrations disagree.
+        run: |
+          set -euo pipefail
+          bunx drizzle-kit generate --config packages/db/drizzle.config.ts
+
+          # Compare CONTENT, not file mode: drizzle-kit rewrites the migration
+          # files it touches and can flip their permission bits, which would
+          # otherwise look like drift on every single build.
+          changed="$(git diff --numstat -- packages/db/drizzle/)"
+          added="$(git ls-files --others --exclude-standard -- packages/db/drizzle/)"
+
+          if [ -n "$changed" ] || [ -n "$added" ]; then
+            echo "::error::The schema has drifted from the migrations. Commit the migration drizzle-kit just generated:"
+            git --no-pager diff -- packages/db/drizzle/
+            echo "New files:"
+            echo "$added"
+            exit 1
+          fi
+
+          echo "No schema drift."
 
       - name: Turborepo Production Build
         run: bun run build
@@ -45,3 +109,124 @@ jobs:
           NEXT_PUBLIC_WEB_URL: "http://localhost:3000"
           NEXT_PUBLIC_APP_URL: "http://localhost:3001"
           NEXT_PUBLIC_ADMIN_URL: "http://localhost:3002"
+
+  container-smoke-test:
+    name: Container Image Smoke Test
+    runs-on: ubuntu-latest
+
+    # The smoke test needs the real dependencies: the API's readiness probe
+    # only reports "ready" when it can actually reach Postgres and Redis, and
+    # the worker's readiness probe reports on its Redis connection.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: first_cup_tech
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d first_cup_tech"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: valkey/valkey:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 10s
+          --health-timeout 3s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build the API image
+        # The previous images crashed on startup because the native ONNX
+        # Runtime binding could not be inlined into the bundle. This step is
+        # the regression guard for that.
+        run: docker build -f apps/api/Dockerfile -t firstcup-api:ci .
+
+      - name: Build the worker image
+        run: docker build -f apps/worker/Dockerfile -t firstcup-worker:ci .
+
+      - name: Start the API container and probe it
+        # `--network host` so that `localhost` inside the container resolves to
+        # the runner, where the Postgres and Redis services are published.
+        run: |
+          set -euo pipefail
+          docker run -d --name firstcup-api-ci --network host \
+            -e NODE_ENV=production \
+            -e PORT=4000 \
+            -e DATABASE_URL="postgresql://postgres:postgres@localhost:5432/first_cup_tech" \
+            -e REDIS_URL="redis://localhost:6379" \
+            -e BETTER_AUTH_SECRET="ci-only-secret-value-not-used-in-production" \
+            -e BETTER_AUTH_URL="http://localhost:4000" \
+            firstcup-api:ci
+
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:4000/health > /dev/null 2>&1; then
+              echo "API container is healthy after ${i}s"
+              curl -fsS http://localhost:4000/health
+              break
+            fi
+            if [ "$i" = "30" ]; then
+              echo "API container did not become healthy. Container logs:"
+              docker logs firstcup-api-ci
+              exit 1
+            fi
+            sleep 1
+          done
+
+          # Readiness must report the real dependency state. A container that
+          # starts but cannot reach its dependencies is NOT ready, and saying
+          # otherwise is how a dependency outage turns into 100% request hangs.
+          ready="$(curl -fsS -m 10 http://localhost:4000/ready)"
+          echo "readiness: $ready"
+          echo "$ready" | grep -q '"ready":true'
+
+      - name: Start the worker container and probe it
+        # The worker image runs the source (not a bundle) for the same reason
+        # as the API image, and it exposes a health endpoint so an orchestrator
+        # can tell a wedged worker from a healthy one. `/health` is a liveness
+        # probe and needs no dependency, so it is asserted without Redis.
+        run: |
+          set -euo pipefail
+          docker run -d --name firstcup-worker-ci --network host \
+            -e NODE_ENV=production \
+            -e WORKER_HEALTH_PORT=4001 \
+            -e REDIS_URL="redis://localhost:6379" \
+            firstcup-worker:ci
+
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:4001/health > /dev/null 2>&1; then
+              echo "Worker container is healthy after ${i}s"
+              curl -fsS http://localhost:4001/health
+              break
+            fi
+            if [ "$i" = "30" ]; then
+              echo "Worker container did not become healthy. Container logs:"
+              docker logs firstcup-worker-ci
+              exit 1
+            fi
+            sleep 1
+          done
+
+          # The readiness probe must ANSWER. It used to hang forever when
+          # Redis was unreachable, because the worker connection is created
+          # with `maxRetriesPerRequest: null` and queues commands
+          # indefinitely — so the probe meant to detect a Redis outage could
+          # never report it. `-m 10` makes a hang a failure.
+          ready="$(curl -sS -m 10 -w '\n%{http_code}' http://localhost:4001/ready)"
+          echo "readiness: $ready"
+          echo "$ready" | grep -q '"service":"firstcup-worker"'
+
+      - name: Clean up
+        if: always()
+        run: |
+          docker rm -f firstcup-api-ci || true
+          docker rm -f firstcup-worker-ci || true

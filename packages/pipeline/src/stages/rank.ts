@@ -42,19 +42,45 @@ export interface RankingOptions {
   maxPerTopic?: number;
 }
 
-export async function rankAndSelectStories(
-  stories: ClusteredStory[],
-  limit = 7,
-  options?: RankingOptions,
-): Promise<RankedStory[]> {
+/** A story together with its computed rank score. */
+export interface ScoredStory {
+  story: ClusteredStory;
+  rankScore: number;
+}
+
+export interface DiversityOptions {
+  maxPerSource: number;
+  maxPerTopic: number;
+  preferredTopics?: string[];
+}
+
+/**
+ * The topic a story is bucketed under for the diversity guardrail.
+ *
+ * `story.topics` is the union of the topics of every signal in the cluster and
+ * its first element is simply whichever topic the first signal happened to
+ * carry. When the reader has stated topic preferences the matching topic is
+ * the meaningful one (that is the topic the bonus was awarded for), otherwise
+ * the first topic is used as before.
+ */
+export function primaryTopicFor(story: ClusteredStory, preferredTopics?: Set<string>): string {
+  if (preferredTopics && preferredTopics.size > 0) {
+    const match = story.topics.find((topic) => preferredTopics.has(topic.toLowerCase()));
+    if (match) return match.toLowerCase();
+  }
+  return story.topics[0]?.toLowerCase() || "general";
+}
+
+/**
+ * Score every story. Pure: no I/O, no side effects.
+ */
+export function scoreStories(stories: ClusteredStory[], options?: RankingOptions): ScoredStory[] {
   const preferredSet = new Set(options?.preferredTopics?.map((t) => t.toLowerCase()) || []);
   const weights = options?.sourceWeights || SOURCE_WEIGHTS;
   const engagementW = options?.engagementWeight ?? 0.4;
   const freshnessW = options?.freshnessWeight ?? 0.3;
   const clusterBonusMult = options?.clusterBonusMultiplier ?? 0.2;
   const topicBonusVal = options?.topicBonus ?? 0.35;
-  const maxPerSource = options?.maxPerSource ?? 3;
-  const maxPerTopic = options?.maxPerTopic ?? 3;
 
   const scoredStories = stories.map((story) => {
     // 1. Average signal engagement & freshness
@@ -78,7 +104,7 @@ export async function rankAndSelectStories(
     // 4. Topic preference match bonus
     let topicBonus = 0;
     if (preferredSet.size > 0) {
-      const hasMatch = story.topics.some((t) => preferredSet.has(t));
+      const hasMatch = story.topics.some((t) => preferredSet.has(t.toLowerCase()));
       if (hasMatch) topicBonus = topicBonusVal;
     }
 
@@ -86,49 +112,71 @@ export async function rankAndSelectStories(
       (avgEngagement * engagementW + avgFreshness * freshnessW + clusterBonus) * srcWeight +
       topicBonus;
 
-    return {
-      story,
-      rankScore,
-    };
+    return { story, rankScore };
   });
 
   // Sort descending by rankScore
   scoredStories.sort((a, b) => b.rankScore - a.rankScore);
 
-  // Apply diversity limits
-  const selectedItems = [];
+  return scoredStories;
+}
+
+/**
+ * Select up to `limit` stories while respecting the diversity guardrails.
+ *
+ * The caps are ALWAYS enforced. The previous implementation only applied them
+ * when there were more stories than slots and then ran a second, uncapped
+ * "fill up" loop that re-added every excluded story — which made the
+ * guardrails a no-op and turned the selection into plain top-N-by-score.
+ *
+ * A result that is shorter than `limit` is therefore the correct outcome: the
+ * guardrails are preferred over filling the digest with redundant stories.
+ */
+export function selectDiverseStories(
+  scored: ScoredStory[],
+  limit: number,
+  options: DiversityOptions,
+): ScoredStory[] {
+  const maxPerSource = Math.max(1, options.maxPerSource);
+  const maxPerTopic = Math.max(1, options.maxPerTopic);
+  const preferredSet = new Set((options.preferredTopics ?? []).map((t) => t.toLowerCase()));
+
   const sourceCount = new Map<string, number>();
   const topicCount = new Map<string, number>();
+  const selected: ScoredStory[] = [];
 
-  for (const item of scoredStories) {
-    if (selectedItems.length >= limit) break;
+  for (const item of scored) {
+    if (selected.length >= limit) break;
 
-    const src = item.story.dominantSource;
-    const primaryTopic = item.story.topics[0] || "general";
+    const source = item.story.dominantSource;
+    const topic = primaryTopicFor(item.story, preferredSet);
 
-    const currentSrcCount = sourceCount.get(src) || 0;
-    const currentTopicCount = topicCount.get(primaryTopic) || 0;
+    if ((sourceCount.get(source) ?? 0) >= maxPerSource) continue;
+    if ((topicCount.get(topic) ?? 0) >= maxPerTopic) continue;
 
-    // Allow exception if we don't have enough stories
-    if (currentSrcCount >= maxPerSource && scoredStories.length > limit) continue;
-    if (currentTopicCount >= maxPerTopic && scoredStories.length > limit) continue;
+    sourceCount.set(source, (sourceCount.get(source) ?? 0) + 1);
+    topicCount.set(topic, (topicCount.get(topic) ?? 0) + 1);
 
-    sourceCount.set(src, currentSrcCount + 1);
-    topicCount.set(primaryTopic, currentTopicCount + 1);
-
-    selectedItems.push(item);
+    selected.push(item);
   }
 
-  // If diversity filter left us short, fill up remaining
-  if (selectedItems.length < limit) {
-    const selectedIds = new Set(selectedItems.map((s) => s.story.id));
-    for (const item of scoredStories) {
-      if (selectedItems.length >= limit) break;
-      if (!selectedIds.has(item.story.id)) {
-        selectedItems.push(item);
-      }
-    }
-  }
+  return selected;
+}
+
+export async function rankAndSelectStories(
+  stories: ClusteredStory[],
+  limit = 7,
+  options?: RankingOptions,
+): Promise<RankedStory[]> {
+  const maxPerSource = options?.maxPerSource ?? 3;
+  const maxPerTopic = options?.maxPerTopic ?? 3;
+
+  const scoredStories = scoreStories(stories, options);
+  const selectedItems = selectDiverseStories(scoredStories, limit, {
+    maxPerSource,
+    maxPerTopic,
+    preferredTopics: options?.preferredTopics,
+  });
 
   // Now concurrently generate AI "Why it matters" judgements for selected stories only
   const aiTasks = selectedItems.map(async (item, idx) => {

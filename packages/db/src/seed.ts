@@ -1,21 +1,106 @@
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
 import { drizzle } from "drizzle-orm/postgres-js";
+import pino from "pino";
 import postgres from "postgres";
 import * as schema from "./schema";
 
-config({ path: "../../.env" });
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const connectionString =
-  process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/first_cup_tech";
+// Resolve the repo-root .env relative to THIS FILE, not the current working
+// directory. `config({ path: "../../.env" })` is resolved against process.cwd(),
+// so running `bun run db:seed` from the repo root silently loaded a different
+// (or no) .env file.
+config({ path: resolve(__dirname, "../../../.env") });
+
+const logger = pino({
+  level: process.env.LOG_LEVEL || "info",
+});
+
+/**
+ * Host names that are considered "clearly local" and therefore safe to wipe.
+ */
+const LOCAL_HOSTNAMES = new Set([
+  "localhost",
+  "127.0.0.1",
+  "::1",
+  "0.0.0.0",
+  "host.docker.internal",
+  // docker-compose service names used by the local development stack
+  "db",
+  "postgres",
+  "database",
+]);
+
+function fail(message: string): never {
+  logger.error(message);
+  process.exit(1);
+}
+
+/**
+ * Guards the destructive part of this script.
+ *
+ * The seed truncates ~16 tables — including `user`, `account` and `session` —
+ * so running it against a production DATABASE_URL destroys every account.
+ */
+function assertSeedIsSafe(connectionString: string): void {
+  if (process.env.NODE_ENV === "production") {
+    fail(
+      'Refusing to seed: NODE_ENV is "production". The seed script deletes all ' +
+        "existing rows. Run it against a local/staging database only, or unset " +
+        "NODE_ENV if you really know what you are doing.",
+    );
+  }
+
+  if (process.env.SEED_ALLOW_REMOTE === "true") {
+    logger.warn(
+      "SEED_ALLOW_REMOTE=true — running the seed against a non-local database. " +
+        "All existing rows will be deleted.",
+    );
+    return;
+  }
+
+  let hostname: string;
+  try {
+    hostname = new URL(connectionString).hostname;
+  } catch {
+    fail(
+      `DATABASE_URL is not a valid URL: ${connectionString}. Fix it and re-run. ` +
+        "The seed script does not fall back to a default database.",
+    );
+  }
+
+  if (!LOCAL_HOSTNAMES.has(hostname.toLowerCase())) {
+    fail(
+      `Refusing to seed: DATABASE_URL points at "${hostname}", which is not a local ` +
+        "database. The seed script deletes all existing rows in ~16 tables " +
+        "(users, accounts, sessions, digests, ...).\n" +
+        "If this really is a throwaway database, re-run with SEED_ALLOW_REMOTE=true.",
+    );
+  }
+}
+
+const connectionString = process.env.DATABASE_URL;
+
+if (!connectionString) {
+  fail(
+    "DATABASE_URL is not set. Point it at the database you want to seed " +
+      '(e.g. "postgresql://postgres:postgres@localhost:5432/first_cup_tech") and ' +
+      "re-run. The seed script no longer falls back to a default database.",
+  );
+}
+
+assertSeedIsSafe(connectionString);
 
 const sql = postgres(connectionString);
 const db = drizzle(sql, { schema });
 
 async function seed() {
-  console.log("🌱 Starting First Cup Tech database seed...");
+  logger.info("🌱 Starting First Cup Tech database seed...");
 
   // 1. Clean existing records in reverse dependency order
-  console.log("🧹 Clearing old data...");
+  logger.info("🧹 Clearing old data...");
   await db.delete(schema.itemInteractions);
   await db.delete(schema.feedback);
   await db.delete(schema.audioBriefs);
@@ -34,7 +119,10 @@ async function seed() {
   await db.delete(schema.systemSettings);
 
   // 2. Seed Users
-  console.log("👤 Seeding users...");
+  // NOTE: the ids below are public knowledge (they live in this repository).
+  // Do not treat "usr_admin_01" as an authorisation token — the API must
+  // authenticate the caller, never trust a raw user id from a webhook body.
+  logger.info("👤 Seeding users...");
   const adminId = "usr_admin_01";
   const proUserId = "usr_pro_01";
   const freeUserId = "usr_free_01";
@@ -43,7 +131,7 @@ async function seed() {
     {
       id: adminId,
       name: "System Administrator",
-      email: "admin@firstcup.tech",
+      email: "admin@example.com",
       emailVerified: true,
       role: "admin",
       plan: "PRO",
@@ -57,7 +145,7 @@ async function seed() {
     {
       id: proUserId,
       name: "Shakil Ahmed",
-      email: "shakil@firstcup.tech",
+      email: "pro.user@example.com",
       emailVerified: true,
       role: "user",
       plan: "PRO",
@@ -73,7 +161,7 @@ async function seed() {
     {
       id: freeUserId,
       name: "Sarah Chen",
-      email: "sarah@techcorp.io",
+      email: "free.user@example.com",
       emailVerified: true,
       role: "user",
       plan: "FREE",
@@ -85,7 +173,7 @@ async function seed() {
   ]);
 
   // 3. Seed User Preferences
-  console.log("⚙️  Seeding user preferences...");
+  logger.info("⚙️  Seeding user preferences...");
   await db.insert(schema.userPreferences).values([
     {
       id: "pref_admin",
@@ -96,6 +184,11 @@ async function seed() {
       deliveryHour: 7,
       audioEnabled: true,
       channelEnabled: true,
+      deliveryCadence: "daily",
+      voicePersona: "neutral",
+      playbackSpeed: 1,
+      emailDigest: true,
+      emailAlerts: true,
     },
     {
       id: "pref_pro",
@@ -106,6 +199,11 @@ async function seed() {
       deliveryHour: 7,
       audioEnabled: true,
       channelEnabled: true,
+      deliveryCadence: "daily",
+      voicePersona: "neutral",
+      playbackSpeed: 1,
+      emailDigest: true,
+      emailAlerts: true,
     },
     {
       id: "pref_free",
@@ -116,11 +214,16 @@ async function seed() {
       deliveryHour: 8,
       audioEnabled: false,
       channelEnabled: false,
+      deliveryCadence: "weekly",
+      voicePersona: "neutral",
+      playbackSpeed: 1.25,
+      emailDigest: true,
+      emailAlerts: false,
     },
   ]);
 
   // 4. Seed Stories & Memberships
-  console.log("📰 Seeding stories & memberships...");
+  logger.info("📰 Seeding stories & memberships...");
   const story1Id = "sty_deepseek_v3";
   const story2Id = "sty_valkey_8";
   const story3Id = "sty_turbo_bun";
@@ -183,7 +286,7 @@ async function seed() {
       storyId: story2Id,
       sourceItemId: "gh:valkey-io/valkey:8.0.0",
       source: "github",
-      url: "https://github.com/valkey-io/valkey/releases/tag/8.0.0",
+      url: "https://github.com/valkey-io/valkey/releases/tag/v8.0.0",
       title: "Valkey 8.0.0 Release Notes and Performance Benchmarks",
       summary:
         "Official release announcement with multi-threaded I/O thread pooling and backward compatibility.",
@@ -221,7 +324,7 @@ async function seed() {
   ]);
 
   // 5. Seed Digests & Digest Items
-  console.log("🎙️  Seeding daily digests & audio briefs...");
+  logger.info("🎙️  Seeding daily digests & audio briefs...");
   const digestTodayId = "dig_today_pro_01";
   const digestYesterdayId = "dig_yesterday_pro_01";
 
@@ -272,10 +375,10 @@ async function seed() {
       storyId: story2Id,
       title:
         "Valkey 8.0 benchmarks demonstrate 3x throughput improvement over legacy cache engines",
-      url: "https://github.com/valkey-io/valkey/releases/tag/8.0.0",
+      url: "https://github.com/valkey-io/valkey/releases/tag/v8.0.0",
       source: "github",
       summary:
-        "The Linux Foundation backed fork releases v8.0 with asynchronous multi-threaded I/O pipelines and native cluster slot rebalancing.",
+        "The Linux Foundation backed fork releases v8 with asynchronous multi-threaded I/O pipelines and native cluster slot rebalancing.",
       whyItMatters: "Drop-in Redis replacement ready for high-concurrency production queues.",
       position: 2,
       rankScore: 0.88,
@@ -305,7 +408,7 @@ async function seed() {
     status: "ready",
     script:
       "Good morning! Here is your First Cup briefing for today. First, DeepSeek-V3 demonstrates major inference savings through FP8 quantization. Second, Valkey 8.0 brings asynchronous I/O thread pooling. And third, Turborepo paired with Bun accelerates monorepo builds dramatically.",
-    audioUrl: "https://storage.firstcup.tech/audio/dig_today_pro_01.mp3",
+    audioUrl: "https://storage.example.com/audio/dig_today_pro_01.mp3",
     durationSec: 194,
     provider: "elevenlabs",
     deliveryChannel: "telegram",
@@ -325,7 +428,7 @@ async function seed() {
   });
 
   // 8. Seed Blog Posts
-  console.log("📝 Seeding blog posts...");
+  logger.info("📝 Seeding blog posts...");
   await db.insert(schema.blogPosts).values([
     {
       id: "blog_01",
@@ -354,7 +457,7 @@ async function seed() {
   ]);
 
   // 9. Seed Newsletter Subscribers
-  console.log("📬 Seeding newsletter subscribers...");
+  logger.info("📬 Seeding newsletter subscribers...");
   await db.insert(schema.newsletterSubscribers).values([
     {
       id: "sub_01",
@@ -371,7 +474,7 @@ async function seed() {
   ]);
 
   // 10. Seed System Settings
-  console.log("🔧 Seeding system settings...");
+  logger.info("🔧 Seeding system settings...");
   await db.insert(schema.systemSettings).values([
     {
       key: "crawler_interval_minutes",
@@ -390,11 +493,11 @@ async function seed() {
     },
   ]);
 
-  console.log("✅ First Cup Tech database seed completed successfully!");
+  logger.info("✅ First Cup Tech database seed completed successfully!");
   await sql.end();
 }
 
 seed().catch((err) => {
-  console.error("❌ Seed failed:", err);
+  logger.error({ err }, "❌ Seed failed:");
   process.exit(1);
 });

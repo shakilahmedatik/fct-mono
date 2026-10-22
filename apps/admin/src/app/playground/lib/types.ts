@@ -75,12 +75,11 @@ export interface LogEntry {
   timestamp: string;
 }
 
-export interface AiConfig {
-  baseURL: string;
-  apiKey: string;
-  model: string;
-}
-
+/**
+ * The API resolves the provider's base URL, API key and model from its own
+ * configuration, so none of them travel from the browser. The status object
+ * therefore reports readiness (`isConfigured` / `isAvailable`) instead.
+ */
 export type AIProviderId = "local" | "openrouter" | "openai" | "gemini" | "anthropic";
 
 export interface AISettings {
@@ -96,8 +95,6 @@ export interface AIProviderStatus {
   isAvailable: boolean;
   isActive: boolean;
   activeModel: string;
-  baseURL: string;
-  maskedKey?: string;
   missingRequirements?: string[];
 }
 

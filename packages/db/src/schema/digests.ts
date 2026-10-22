@@ -53,6 +53,8 @@ export const digestItems = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
+    // `digest_id` is the leading column of this index, so the joins on
+    // digest_item -> digest are index-backed.
     index("digest_item_digest_id_position_idx").on(table.digestId, table.position),
     index("digest_item_story_id_idx").on(table.storyId),
     index("digest_item_url_idx").on(table.url),

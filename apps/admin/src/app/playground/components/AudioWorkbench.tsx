@@ -70,7 +70,7 @@ export function AudioWorkbench({
 
   const [isSynthesizing, setIsSynthesizing] = React.useState(false);
   const [audioResult, setAudioResult] = React.useState<{
-    audioUrl?: string;
+    audioUrl: string | null;
     durationSec?: number;
     sizeKb?: number;
     engine?: string;
@@ -101,32 +101,27 @@ export function AudioWorkbench({
         script,
       });
 
-      if (res.success) {
-        setAudioResult({
-          audioUrl: res.audioBase64
-            ? `data:audio/mp3;base64,${res.audioBase64}`
-            : "https://cdn.firstcup.tech/audio/sample-brief.mp3",
-          durationSec: res.durationSec || estimatedDuration,
-          sizeKb: res.sizeBytes ? Math.round(res.sizeBytes / 1024) : 240,
-          engine: res.provider || engine,
-        });
-      } else {
-        // Safe simulation fallback
-        setAudioResult({
-          audioUrl: "https://cdn.firstcup.tech/audio/sample-brief.mp3",
-          durationSec: estimatedDuration || 45,
-          sizeKb: 180,
-          engine,
-        });
+      if (!res.success) {
+        // A failed synthesis is reported as a failure. Substituting a sample
+        // clip here would present fabricated audio as the API's output.
+        setAudioResult(null);
+        setError(res.error || "The API did not synthesise the script.");
+        return;
       }
-    } catch {
-      // Local fallback
+
       setAudioResult({
-        audioUrl: "https://cdn.firstcup.tech/audio/sample-brief.mp3",
-        durationSec: estimatedDuration || 45,
-        sizeKb: 180,
-        engine,
+        audioUrl: res.audioBase64 ? `data:audio/mp3;base64,${res.audioBase64}` : null,
+        durationSec: res.durationSec ?? estimatedDuration,
+        sizeKb: res.sizeBytes ? Math.round(res.sizeBytes / 1024) : 0,
+        engine: res.provider || engine,
       });
+    } catch (err) {
+      setAudioResult(null);
+      setError(
+        err instanceof Error
+          ? `The API could not be reached: ${err.message}`
+          : "The API could not be reached.",
+      );
     } finally {
       setIsSynthesizing(false);
     }
@@ -296,16 +291,18 @@ export function AudioWorkbench({
                 </div>
 
                 {/* HTML5 Audio Player */}
-                <div className="p-3 rounded-lg bg-card border border-border/60">
-                  <audio
-                    controls
-                    className="w-full h-10 accent-emerald-500"
-                    src={audioResult.audioUrl}
-                  >
-                    <track kind="captions" srcLang="en" label="Synthesized audio speech" />
-                    Your browser does not support the audio element.
-                  </audio>
-                </div>
+                {audioResult.audioUrl && (
+                  <div className="p-3 rounded-lg bg-card border border-border/60">
+                    <audio
+                      controls
+                      className="w-full h-10 accent-emerald-500"
+                      src={audioResult.audioUrl}
+                    >
+                      <track kind="captions" srcLang="en" label="Synthesized audio speech" />
+                      Your browser does not support the audio element.
+                    </audio>
+                  </div>
+                )}
 
                 <div className="flex items-center justify-between pt-2 border-t border-border/40 text-xs text-muted-foreground">
                   <span>Engine: {engine.toUpperCase()} v0.19 (en-us 24kHz Mono)</span>

@@ -8,7 +8,20 @@ export const userService = {
     return user;
   },
 
-  async updateProfile(userId: string, data: Partial<typeof schema.users.$inferInsert>) {
+  async updateProfile(
+    userId: string,
+    data: Partial<
+      Pick<
+        typeof schema.users.$inferInsert,
+        | "name"
+        | "persona"
+        | "telegramChatId"
+        | "telegramUsername"
+        | "phoneNumber"
+        | "preferredDeliveryChannel"
+      >
+    >,
+  ) {
     return userRepository.updateProfile(userId, data);
   },
 

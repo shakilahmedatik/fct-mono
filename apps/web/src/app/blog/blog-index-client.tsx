@@ -17,6 +17,7 @@ import {
   TabsTrigger,
 } from "@repo/ui";
 import {
+  AlertCircle,
   ArrowRight,
   Bot,
   Calendar,
@@ -32,6 +33,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import * as React from "react";
+import { subscribeToNewsletter } from "../../lib/newsletter";
 
 export interface BlogPostItem {
   id: string;
@@ -49,106 +51,17 @@ export interface BlogPostItem {
   isFeatured?: boolean;
 }
 
-export const FALLBACK_BLOG_POSTS: BlogPostItem[] = [
-  {
-    id: "post-1",
-    slug: "state-of-quantization-2026",
-    title: "The State of Open Source AI Quantization in 2026: FP8, AWQ & Private VPC Economics",
-    excerpt:
-      "Why FP8 and 4-bit KV caching are revolutionizing private cloud LLM inference economics, cutting VRAM overhead by 60% without perplexity penalties.",
-    category: "ai",
-    categoryLabel: "AI & Voice",
-    readTime: "6 min read",
-    authorName: "Dr. Aris Thorne",
-    authorRole: "Lead AI Architect",
-    authorInitials: "AT",
-    publishedAt: "2026-10-14T07:00:00Z",
-    tags: ["ai", "quantization", "llm", "inference"],
-    isFeatured: true,
-  },
-  {
-    id: "post-2",
-    slug: "tech-pulse-2026-10-08",
-    title: "Next.js 16 and Bun 1.3: The Serverless Convergence",
-    excerpt:
-      "An executive overview of full-stack TypeScript runtime evolutions, standalone binary bundling, and containerized deployment models.",
-    category: "engineering",
-    categoryLabel: "Engineering",
-    readTime: "5 min read",
-    authorName: "Elena Rostova",
-    authorRole: "Principal Platform Engineer",
-    authorInitials: "ER",
-    publishedAt: "2026-10-12T08:30:00Z",
-    tags: ["nextjs", "bun", "architecture", "typescript"],
-  },
-  {
-    id: "post-3",
-    slug: "zero-latency-voice-agents",
-    title: "Sub-300ms Voice Synthesis: The Mechanics of Real-Time Audio AI",
-    excerpt:
-      "Analyzing full-duplex WebSocket audio pipelines, streaming chunk tokens, and edge neural codecs powering the next generation of voice assistants.",
-    category: "ai",
-    categoryLabel: "AI & Voice",
-    readTime: "7 min read",
-    authorName: "Marcus Vance",
-    authorRole: "Audio AI Lead",
-    authorInitials: "MV",
-    publishedAt: "2026-10-10T09:15:00Z",
-    tags: ["voice", "ai", "websockets", "streaming"],
-  },
-  {
-    id: "post-4",
-    slug: "executive-audio-briefing-habit",
-    title: "The 3-Minute Executive Habit: Why Asynchronous Audio Wins",
-    excerpt:
-      "Cognitive load studies demonstrate that morning synthesized audio briefings retain 42% higher strategic recall than skimming 40 browser tabs.",
-    category: "productivity",
-    categoryLabel: "Productivity",
-    readTime: "4 min read",
-    authorName: "Sarah Chen",
-    authorRole: "VP of Product Strategy",
-    authorInitials: "SC",
-    publishedAt: "2026-10-08T07:00:00Z",
-    tags: ["productivity", "leadership", "executive"],
-  },
-  {
-    id: "post-5",
-    slug: "designing-autonomous-intelligence",
-    title: "Designing Autonomous Intelligence: Lessons from Building FirstCup",
-    excerpt:
-      "How we built a self-healing pipeline that ingests 50,000 GitHub repos and Hacker News threads, clusters them via embeddings, and drafts scripts.",
-    category: "product",
-    categoryLabel: "Product",
-    readTime: "8 min read",
-    authorName: "Shakil Ahmed",
-    authorRole: "Founder & CEO",
-    authorInitials: "SA",
-    publishedAt: "2026-10-05T11:00:00Z",
-    tags: ["product", "agents", "pipeline", "startups"],
-  },
-  {
-    id: "post-6",
-    slug: "high-throughput-caching-valkey",
-    title: "Valkey 8.0 Benchmarks: Replacing Redis in High-Concurrency Queues",
-    excerpt:
-      "Real-world production benchmarks evaluating asynchronous I/O thread pooling, cluster slot rebalancing, and memory efficiency under 100k QPS.",
-    category: "engineering",
-    categoryLabel: "Engineering",
-    readTime: "5 min read",
-    authorName: "David Kross",
-    authorRole: "Infrastructure Specialist",
-    authorInitials: "DK",
-    publishedAt: "2026-10-02T14:20:00Z",
-    tags: ["valkey", "redis", "database", "infrastructure"],
-  },
-];
-
 interface BlogIndexClientProps {
   initialPosts?: BlogPostItem[];
+  /**
+   * Set when the server could not reach the API. The page renders an explicit
+   * error state instead of substituting fabricated articles.
+   */
+  initialError?: string;
 }
 
-export function BlogIndexClient({ initialPosts = [] }: BlogIndexClientProps) {
-  const posts = initialPosts.length ? initialPosts : FALLBACK_BLOG_POSTS;
+export function BlogIndexClient({ initialPosts = [], initialError }: BlogIndexClientProps) {
+  const posts = initialPosts;
   const [activeTab, setActiveTab] = React.useState<string>("all");
   const [searchQuery, setSearchQuery] = React.useState<string>("");
 
@@ -157,6 +70,7 @@ export function BlogIndexClient({ initialPosts = [] }: BlogIndexClientProps) {
   const [newsletterStatus, setNewsletterStatus] = React.useState<
     "idle" | "submitting" | "success" | "error"
   >("idle");
+  const [newsletterError, setNewsletterError] = React.useState("");
 
   const featuredPost = posts.find((p) => p.isFeatured) || posts[0];
 
@@ -172,17 +86,18 @@ export function BlogIndexClient({ initialPosts = [] }: BlogIndexClientProps) {
     });
   }, [posts, activeTab, searchQuery]);
 
-  const handleNewsletterSubmit = (e: React.FormEvent) => {
+  const handleNewsletterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newsletterEmail?.includes("@")) {
-      setNewsletterStatus("error");
-      return;
-    }
+    setNewsletterError("");
     setNewsletterStatus("submitting");
-    setTimeout(() => {
+    const result = await subscribeToNewsletter(newsletterEmail);
+    if (result.ok) {
       setNewsletterStatus("success");
       setNewsletterEmail("");
-    }, 600);
+      return;
+    }
+    setNewsletterStatus("error");
+    setNewsletterError(result.message);
   };
 
   const getCategoryIcon = (category: string) => {
@@ -216,6 +131,18 @@ export function BlogIndexClient({ initialPosts = [] }: BlogIndexClientProps) {
           synthesized for technology leaders.
         </p>
       </div>
+
+      {/* Load failure — never substituted with fabricated articles. */}
+      {initialError && (
+        <Alert variant="destructive" className="mb-16" role="alert">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Briefings Unavailable</AlertTitle>
+          <AlertDescription>
+            {initialError} Please reload the page or try again shortly — no cached articles are
+            shown in the meantime.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Featured Article Hero Card */}
       {featuredPost && (
@@ -454,11 +381,18 @@ export function BlogIndexClient({ initialPosts = [] }: BlogIndexClientProps) {
               <div className="w-full">
                 <Input
                   type="email"
+                  name="email"
                   placeholder="name@company.com"
                   value={newsletterEmail}
                   onChange={(e) => setNewsletterEmail(e.target.value)}
                   leftIcon={<Mail className="h-4 w-4" />}
+                  autoComplete="email"
                   required
+                  aria-label="Email address for the newsletter"
+                  aria-invalid={newsletterStatus === "error" ? "true" : undefined}
+                  aria-describedby={
+                    newsletterStatus === "error" ? "blog-newsletter-error" : undefined
+                  }
                 />
               </div>
               <Button
@@ -482,9 +416,13 @@ export function BlogIndexClient({ initialPosts = [] }: BlogIndexClientProps) {
             )}
 
             {newsletterStatus === "error" && (
-              <Alert variant="destructive" className="mt-4 text-left">
-                <AlertTitle>Invalid Email</AlertTitle>
-                <AlertDescription>Please enter a valid business email address.</AlertDescription>
+              <Alert variant="destructive" className="mt-4 text-left" role="alert">
+                <AlertTitle>Subscription Failed</AlertTitle>
+                <AlertDescription>
+                  <span id="blog-newsletter-error">
+                    {newsletterError || "Please enter a valid business email address."}
+                  </span>
+                </AlertDescription>
               </Alert>
             )}
 

@@ -31,6 +31,8 @@ export interface AudioBriefDeliveryPayload {
   items: DeliveryItemHighlight[];
   digestId?: string;
   userId?: string;
+  /** Per-recipient unsubscribe link (newsletter subscribers only). */
+  unsubscribeUrl?: string | null;
 }
 
 export interface TextBriefDeliveryPayload {

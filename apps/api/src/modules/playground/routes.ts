@@ -21,6 +21,7 @@ import {
   generateAudio,
   generateBlogPreview,
   generateDailyAudioScript,
+  getAIConfigForProvider,
   getAIProviderStatuses,
   getAISettings,
   getAllCategories,
@@ -35,6 +36,7 @@ import {
   type RawSignal,
   rankAndSelectStories,
   type SourceDefinition,
+  sanitizeHtmlContent,
   saveAISettings,
   saveAudioSettings,
   serializeForTransport,
@@ -43,7 +45,9 @@ import {
 import { Hono } from "hono";
 import { z } from "zod";
 import { audioQueue } from "../../lib/queue-client";
+import { authGuard } from "../../middleware/auth-guard";
 import { logger } from "../../middleware/logger";
+import { roleGuard } from "../../middleware/role-guard";
 import type { AppBindings } from "../../types";
 import { cacheClear, cacheGet, cacheSet, getCacheStatus, listAllSessions } from "./cache";
 import { cleanQueue, getAllQueueStatuses, getQueueJobs, retryFailedJob } from "./queue-inspector";
@@ -62,11 +66,86 @@ function escapeHtml(input: string): string {
     .replace(/'/g, "&#39;");
 }
 
+/**
+ * Remove sensitive material from provider status objects.
+ *
+ * `maskedKey` exposes the first and last four characters of the real API key.
+ * Even eight characters materially assist brute forcing, so the client is told
+ * only whether a provider is configured. The internal `baseURL` of a locally
+ * hosted model is infrastructure detail and is not published either.
+ */
+function withoutKeyMaterial<T extends object>(provider: T): T {
+  const record = provider as Record<string, unknown>;
+  const { maskedKey: _maskedKey, baseURL, ...rest } = record;
+  if (record.id !== "local" && baseURL !== undefined) {
+    rest.baseURL = baseURL;
+  }
+  return rest as T;
+}
+
 // ---------------------------------------------------------------------------
 // Zod Schemas
 // ---------------------------------------------------------------------------
 
 const sessionIdSchema = z.object({ sessionId: z.string().min(1) });
+
+const KNOWN_AI_PROVIDER_IDS: AIProviderId[] = [
+  "local",
+  "openrouter",
+  "openai",
+  "anthropic",
+  "gemini",
+];
+
+/**
+ * Validate a user-supplied RSS feed URL.
+ *
+ * The server fetches this URL, so an unrestricted value is a server-side
+ * request forgery primitive: it could reach the cloud metadata endpoint, the
+ * database, or any internal service. Only http(s) URLs pointing at public
+ * hosts are allowed.
+ */
+const RSS_FEED_URL_PATTERN = /^https?:\/\/[^\s/$.?#].[^\s]*$/i;
+
+const PRIVATE_HOST_PATTERNS = [
+  /^localhost$/i,
+  /^127\./,
+  /^0\.0\.0\.0$/,
+  /^10\./,
+  /^192\.168\./,
+  /^172\.(1[6-9]|2\d|3[01])\./,
+  /^169\.254\./,
+  /^\[?::1\]?$/,
+  /^metadata\./i,
+  /\.internal$/i,
+  /\.local$/i,
+];
+
+function isPublicFeedUrl(rawUrl: string): boolean {
+  if (!RSS_FEED_URL_PATTERN.test(rawUrl)) return false;
+  try {
+    const url = new URL(rawUrl);
+    const host = url.hostname.replace(/^\[|\]$/g, "");
+    if (PRIVATE_HOST_PATTERNS.some((pattern) => pattern.test(host))) return false;
+    // An explicit allowlist can permit a specific internal host.
+    const allowed = (process.env.RSS_ALLOWED_HOSTS ?? "")
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    if (allowed.includes(host)) return true;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const sourceConfigSchema = z
+  .object({
+    type: z.enum(["rss", "hackernews", "github", "reddit", "forem"]).optional(),
+    feedUrl: z.string().max(2048).optional(),
+    url: z.string().max(2048).optional(),
+  })
+  .passthrough();
 
 const ingestSchema = z.object({
   sessionId: z.string().min(1),
@@ -79,7 +158,7 @@ const ingestSchema = z.object({
         .object({
           id: z.string().min(1),
           enabled: z.boolean().optional(),
-          config: z.record(z.string(), z.unknown()).optional(),
+          config: sourceConfigSchema.optional(),
           categories: z.array(z.string()).optional(),
           name: z.string().optional(),
         })
@@ -109,11 +188,13 @@ const rankSchema = z.object({
 
 const audioScriptSchema = z.object({
   sessionId: z.string().min(1),
-  targetMinDuration: z.number().optional(),
-  targetMaxDuration: z.number().optional(),
-  introTemplate: z.string().optional(),
-  outroTemplate: z.string().optional(),
-  wordsPerMinute: z.number().optional(),
+  targetMinDuration: z.number().min(0).max(3600).optional(),
+  targetMaxDuration: z.number().min(0).max(3600).optional(),
+  introTemplate: z.string().max(500).optional(),
+  outroTemplate: z.string().max(500).optional(),
+  // Bounded: `wordsPerMinute: 0` produced a duration of Infinity, which
+  // serialises as `null` and was then cached as an invalid metric.
+  wordsPerMinute: z.number().int().min(40).max(400).optional(),
 });
 
 const audioGenerateSchema = z.object({
@@ -140,20 +221,46 @@ const blogSchema = z.object({
 
 export const playgroundRouter = new Hono<AppBindings>()
 
+  // The playground is an admin-only surface. It is mounted after the admin
+  // router in `app.ts`, but relying on mount order alone is fragile — Hono
+  // matches routes in registration order, so the guard is applied here as
+  // well, making the requirement independent of where the router is mounted.
+  .use("*", authGuard)
+  .use("*", roleGuard("admin"))
+
   .use("*", async (c, next) => {
-    const aiConfigStr = c.req.header("x-ai-provider");
-    let aiConfig: AIProviderConfig | undefined;
-    if (aiConfigStr) {
-      try {
-        aiConfig = JSON.parse(aiConfigStr);
-      } catch {
-        // ignore
-      }
+    // `x-ai-provider` may only SELECT a provider that the server already
+    // knows about. It must never be able to redirect outbound traffic: the
+    // previous implementation accepted an arbitrary `baseURL` (and `apiKey`)
+    // from this header, which let any caller aim the server's outbound
+    // requests at an arbitrary host — a classic SSRF.
+    const providerId = c.req.header("x-ai-provider");
+    if (!providerId) {
+      return await next();
     }
-    if (aiConfig) {
-      return await aiConfigStorage.run(aiConfig, next);
+
+    if (!KNOWN_AI_PROVIDER_IDS.includes(providerId as AIProviderId)) {
+      return c.json({ error: "Unknown AI provider" }, 400);
     }
-    return await next();
+
+    // The provider configuration is resolved on the server from environment
+    // configuration — the request only names which provider to use.
+    let aiConfig: AIProviderConfig;
+    try {
+      aiConfig = await getAIConfigForProvider(providerId as AIProviderId);
+    } catch (error) {
+      return c.json(
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "The selected AI provider is not available on this server.",
+        },
+        400,
+      );
+    }
+
+    return await aiConfigStorage.run(aiConfig, next);
   })
 
   // ── Sources Configuration ─────────────────────────────────────────────────
@@ -173,9 +280,9 @@ export const playgroundRouter = new Hono<AppBindings>()
       categories,
       audioProviders: configuredProviders,
       aiSettings,
-      aiProviders,
+      aiProviders: aiProviders.map(withoutKeyMaterial),
       audioSettings,
-      audioStatuses,
+      audioStatuses: audioStatuses.map(withoutKeyMaterial),
     });
   })
 
@@ -183,7 +290,11 @@ export const playgroundRouter = new Hono<AppBindings>()
   .get("/ai/settings", async (c) => {
     const settings = await getAISettings();
     const providers = getAIProviderStatuses(settings);
-    return c.json({ success: true, settings, providers });
+    return c.json({
+      success: true,
+      settings,
+      providers: providers.map(withoutKeyMaterial),
+    });
   })
 
   .post("/ai/settings", async (c) => {
@@ -193,12 +304,32 @@ export const playgroundRouter = new Hono<AppBindings>()
       model?: string;
     };
     const updates: Partial<AISettings> = {};
-    if (activeProvider) updates.activeProvider = activeProvider;
-    if (typeof model === "string") updates.model = model.trim();
+
+    // Validate rather than cast: the previous version accepted any string as a
+    // provider id and persisted it.
+    if (activeProvider !== undefined) {
+      if (!KNOWN_AI_PROVIDER_IDS.includes(activeProvider)) {
+        return c.json(
+          { error: `Unknown AI provider. Expected one of: ${KNOWN_AI_PROVIDER_IDS.join(", ")}` },
+          400,
+        );
+      }
+      updates.activeProvider = activeProvider;
+    }
+    if (model !== undefined) {
+      if (typeof model !== "string" || model.trim().length === 0 || model.trim().length > 200) {
+        return c.json({ error: "model must be a non-empty string of at most 200 characters" }, 400);
+      }
+      updates.model = model.trim();
+    }
 
     const settings = await saveAISettings(updates);
     const providers = getAIProviderStatuses(settings);
-    return c.json({ success: true, settings, providers });
+    return c.json({
+      success: true,
+      settings,
+      providers: providers.map(withoutKeyMaterial),
+    });
   })
 
   .post("/ai/test", async (c) => {
@@ -325,6 +456,23 @@ export const playgroundRouter = new Hono<AppBindings>()
     const { sessionId, sourceOverrides, categoryFilter } = c.req.valid("json");
     const startedAt = Date.now();
 
+    // Reject any override that points the server at a non-public host before
+    // the fetch happens.
+    if (sourceOverrides) {
+      for (const override of sourceOverrides) {
+        const feedUrl = override.config?.feedUrl ?? override.config?.url;
+        if (typeof feedUrl === "string" && !isPublicFeedUrl(feedUrl)) {
+          return c.json(
+            {
+              error:
+                "Invalid feed URL. Only public http(s) feed URLs are allowed; private, loopback and link-local hosts are rejected.",
+            },
+            400,
+          );
+        }
+      }
+    }
+
     try {
       const result = await ingestFromSources(
         sourceOverrides as Partial<SourceDefinition>[] | undefined,
@@ -412,6 +560,15 @@ export const playgroundRouter = new Hono<AppBindings>()
         sourceDist[sig.source] = (sourceDist[sig.source] || 0) + 1;
       }
 
+      // Averages are guarded: dividing by zero produced NaN, which
+      // `JSON.stringify` serialises as `null` while the endpoint still
+      // reported success.
+      const count = normalized.length;
+      const avgFreshness = count ? normalized.reduce((s, n) => s + n.freshnessScore, 0) / count : 0;
+      const avgEngagement = count
+        ? normalized.reduce((s, n) => s + n.engagementScore, 0) / count
+        : 0;
+
       return c.json({
         success: true,
         step: "normalize",
@@ -421,8 +578,8 @@ export const playgroundRouter = new Hono<AppBindings>()
           deduplicatedCount: rawSignals.length - normalized.length,
           topicDistribution: topicDist,
           sourceDistribution: sourceDist,
-          avgFreshness: normalized.reduce((s, n) => s + n.freshnessScore, 0) / normalized.length,
-          avgEngagement: normalized.reduce((s, n) => s + n.engagementScore, 0) / normalized.length,
+          avgFreshness,
+          avgEngagement,
           signals: normalized.slice(0, 50),
         },
         durationMs: Date.now() - startedAt,
@@ -580,35 +737,48 @@ export const playgroundRouter = new Hono<AppBindings>()
       };
 
       if (persist) {
-        // Actually persist to DB
-        await db.insert(schema.digests).values({
-          id: digestData.id,
-          userId: null,
-          digestType: "daily_audio",
-          status: "generated",
-          title: digestData.title,
-          digestDate: now,
-          generatedAt: new Date(),
-          isMaster: true,
-        });
-
-        for (const item of ranked) {
-          const topSig = item.story.signals[0];
-          await db.insert(schema.digestItems).values({
-            id: crypto.randomUUID(),
-            digestId: digestData.id,
-            storyId: item.story.id,
-            title: item.story.canonicalTitle,
-            url: topSig?.url || "https://firstcup.tech",
-            source: item.story.dominantSource,
-            summary: topSig?.summary || "Curated technology briefing.",
-            whyItMatters: item.whyItMatters,
-            rankScore: item.rankScore,
-            position: item.position,
-            topics: item.story.topics,
-            publishedAt: topSig?.publishedAt || now,
+        // The digest row and its items are written in one transaction: the
+        // previous version inserted the digest, then inserted each item with
+        // its own awaited statement and no transaction, so a failure part-way
+        // through left an orphan digest holding only some of its items.
+        //
+        // `isMaster` is deliberately false. Master digests are what
+        // `GET /digests/public/latest` serves, so a playground run must never
+        // be able to publish into the product's public feed.
+        await db.transaction(async (tx) => {
+          await tx.insert(schema.digests).values({
+            id: digestData.id,
+            userId: null,
+            digestType: "daily_audio",
+            status: "generated",
+            title: `[playground] ${digestData.title}`,
+            digestDate: now,
+            generatedAt: new Date(),
+            isMaster: false,
           });
-        }
+
+          if (ranked.length > 0) {
+            await tx.insert(schema.digestItems).values(
+              ranked.map((item) => {
+                const topSig = item.story.signals[0];
+                return {
+                  id: crypto.randomUUID(),
+                  digestId: digestData.id,
+                  storyId: item.story.id,
+                  title: item.story.canonicalTitle,
+                  url: topSig?.url || "https://firstcup.tech",
+                  source: item.story.dominantSource,
+                  summary: topSig?.summary || "Curated technology briefing.",
+                  whyItMatters: item.whyItMatters,
+                  rankScore: item.rankScore,
+                  position: item.position,
+                  topics: item.story.topics,
+                  publishedAt: topSig?.publishedAt || now,
+                };
+              }),
+            );
+          }
+        });
       }
 
       await cacheSet(sessionId, "tier3_digest", JSON.stringify(digestData));
@@ -852,7 +1022,7 @@ export const playgroundRouter = new Hono<AppBindings>()
             </div>
             <div class="content">
               <p style="font-size: 16px; color: #555; margin-bottom: 25px;">${escapeHtml(preview.excerpt)}</p>
-              ${preview.contentHtml}
+              ${sanitizeHtmlContent(preview.contentHtml)}
             </div>
             <div class="footer">
               <p>You're receiving this because you're subscribed to the First Cup Tech daily briefing.</p>
@@ -919,24 +1089,48 @@ export const playgroundRouter = new Hono<AppBindings>()
   // ── Tier 4: Enqueue Prod Job ──────────────────────────────────────────────
   .post("/tier4/enqueue-prod", zValidator("json", sessionIdSchema), async (c) => {
     const { sessionId } = c.req.valid("json");
-    const rawAiConfig = c.req.header("x-ai-provider");
+
+    // The provider is selected by ID only. The previous implementation parsed
+    // the whole `x-ai-provider` header as JSON and forwarded it to the worker,
+    // which used the caller-supplied `baseURL` for its outbound requests — a
+    // server-side request forgery pivot into the private network.
+    const providerHeader = c.req.header("x-ai-provider");
     let aiConfig: AIProviderConfig | undefined;
-    if (rawAiConfig) {
+    if (providerHeader) {
+      if (!KNOWN_AI_PROVIDER_IDS.includes(providerHeader as AIProviderId)) {
+        return c.json({ error: "Unknown AI provider" }, 400);
+      }
       try {
-        aiConfig = JSON.parse(rawAiConfig);
-      } catch {}
+        aiConfig = await getAIConfigForProvider(providerHeader as AIProviderId);
+      } catch (error) {
+        return c.json(
+          {
+            error:
+              error instanceof Error
+                ? error.message
+                : "The selected AI provider is not available on this server.",
+          },
+          400,
+        );
+      }
     }
 
     try {
       const { digestQueue } = await import("../../lib/queue-client");
-      const job = await digestQueue.add("generate-digest", {
-        type: "admin",
-        force: true,
-        // Pass sessionId so the worker / dashboard can correlate the queue job
-        // back to the playground run that triggered it.
-        sourceSessionId: sessionId,
-        aiConfig,
-      });
+      const job = await digestQueue.add(
+        "generate-digest",
+        {
+          type: "admin",
+          force: true,
+          // Pass sessionId so the worker / dashboard can correlate the queue job
+          // back to the playground run that triggered it.
+          sourceSessionId: sessionId,
+          aiConfig,
+        },
+        // A deterministic job id means repeated clicks cannot pile up
+        // duplicate production runs.
+        { jobId: `playground-prod-${sessionId}` },
+      );
 
       return c.json({
         success: true,
@@ -976,11 +1170,28 @@ export const playgroundRouter = new Hono<AppBindings>()
 
   .get("/queues/:name/jobs", async (c) => {
     const name = c.req.param("name");
-    const status =
-      (c.req.query("status") as "waiting" | "active" | "completed" | "failed" | "delayed") ||
-      "completed";
-    const limit = Number(c.req.query("limit")) || 20;
-    const jobs = await getQueueJobs(name, status, limit);
+
+    // Both values were previously taken raw from the query string: `limit` was
+    // unbounded (a single request could ask for a million jobs with their full
+    // payloads) and `status` was cast rather than validated.
+    const parsedLimit = z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(100)
+      .safeParse(c.req.query("limit") ?? 20);
+    const parsedStatus = z
+      .enum(["waiting", "active", "completed", "failed", "delayed"])
+      .safeParse(c.req.query("status") ?? "completed");
+
+    if (!parsedLimit.success) {
+      return c.json({ error: "limit must be an integer between 1 and 100" }, 400);
+    }
+    if (!parsedStatus.success) {
+      return c.json({ error: "status is not a valid queue state" }, 400);
+    }
+
+    const jobs = await getQueueJobs(name, parsedStatus.data, parsedLimit.data);
     return c.json({ jobs });
   })
 

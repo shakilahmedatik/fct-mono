@@ -1,0 +1,60 @@
+# Build context hygiene.
+#
+# Without this, every `docker build` sends the whole working tree — including
+# node_modules and the Next.js build output — to the daemon.
+
+# Dependencies
+node_modules
+**/node_modules
+
+# Build output
+.next
+**/.next
+dist
+**/dist
+out
+**/out
+.turbo
+**/.turbo
+build
+**/build
+
+# Test and coverage output
+coverage
+**/coverage
+test-results
+playwright-report
+
+# Version control and CI
+.git
+.github
+.gitignore
+
+# Environment files — secrets must never enter an image layer.
+# The `**/` prefix is required: a bare `.env` pattern only matches the file at
+# the context root, so `apps/api/.env` would otherwise be baked into the image.
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+
+# Logs and local artefacts
+logs
+*.log
+*.tsbuildinfo
+.DS_Store
+coverage/
+reports/
+
+# Editor directories
+.idea
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# Audit artefacts
+AUDIT_REPORT.md
+REMEDIATION.md
+.agents

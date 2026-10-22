@@ -14,6 +14,8 @@ import {
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { appUrl } from "../../../lib/config";
+import { sanitizeHtml } from "../../../lib/sanitize-html";
 
 interface BlogPostDetailProps {
   params: Promise<{ slug: string }>;
@@ -233,10 +235,22 @@ export default async function BlogPostPage({ params }: BlogPostDetailProps) {
               {dateStr}
             </span>
             <div className="hidden sm:flex items-center gap-2">
-              <Button variant="ghost" size="sm" className="h-8 px-2 text-muted-foreground">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2 text-muted-foreground"
+                aria-label="Save this article to your reading list"
+                title="Save to reading list"
+              >
                 <Bookmark className="h-4 w-4" />
               </Button>
-              <Button variant="ghost" size="sm" className="h-8 px-2 text-muted-foreground">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2 text-muted-foreground"
+                aria-label="Share this article"
+                title="Share this article"
+              >
                 <Share2 className="h-4 w-4" />
               </Button>
             </div>
@@ -265,9 +279,17 @@ export default async function BlogPostPage({ params }: BlogPostDetailProps) {
       {/* Editorial Content */}
       <div className="prose dark:prose-invert max-w-none text-foreground leading-relaxed space-y-8 text-base sm:text-lg">
         {post.contentHtml ? (
+          /*
+           * `post.contentHtml` is sanitised server-side by the API/pipeline
+           * before it is persisted — that is the control that matters. The
+           * extra `sanitizeHtml()` pass below is defence in depth: it removes
+           * any script-bearing construct that could reach the browser through
+           * an unsanitised or legacy row. No client-side sanitiser can make
+           * untrusted HTML safe on its own, so the server-side pass must stay.
+           */
           <div
             className="space-y-6 [&_p]:leading-relaxed [&_h2]:text-2xl [&_h2]:font-bold [&_h2]:tracking-tight [&_h2]:mt-8 [&_h2]:mb-4 [&_h3]:text-xl [&_h3]:font-semibold"
-            dangerouslySetInnerHTML={{ __html: post.contentHtml }}
+            dangerouslySetInnerHTML={{ __html: sanitizeHtml(post.contentHtml) }}
           />
         ) : (
           <>
@@ -397,7 +419,7 @@ export const inferenceEngineConfig = {
               </p>
             </div>
           </div>
-          <a href="http://localhost:3001" className="shrink-0 w-full sm:w-auto">
+          <a href={appUrl("/")} className="shrink-0 w-full sm:w-auto">
             <Button variant="primary" className="w-full gap-2 cursor-pointer">
               <span>Open in Console</span>
               <ArrowRight className="h-4 w-4" />

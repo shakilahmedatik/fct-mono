@@ -24,11 +24,17 @@ import {
 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import * as React from "react";
+import { webUrl } from "../lib/config";
+import { initialsFor, useProfile } from "../lib/use-profile";
 
 export function ConsoleSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = React.useState(false);
+  const { profile, isLoading, error: profileError } = useProfile();
+
+  // The plan badge is derived from the signed-in account, never hard-coded.
+  const planLabel = (profile?.plan ?? "FREE").toUpperCase();
 
   // Close mobile drawer on route change
   React.useEffect(() => {
@@ -64,7 +70,7 @@ export function ConsoleSidebar() {
       label: "Subscription",
       icon: <CreditCard className="h-4 w-4" />,
       active: pathname.startsWith("/billing"),
-      badge: <Badge variant="success">PRO</Badge>,
+      badge: <Badge variant="success">{planLabel}</Badge>,
     },
   ];
 
@@ -99,15 +105,25 @@ export function ConsoleSidebar() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <div className="h-8 w-8 rounded-full bg-accent/20 text-accent flex items-center justify-center font-bold text-xs border border-accent/30">
-            FC
+            {initialsFor(profile?.name)}
           </div>
           <div className="text-xs">
-            <div className="font-semibold text-foreground">Engineering Lead</div>
-            <div className="text-muted-foreground">Pro Member</div>
+            <div className="font-semibold text-foreground">
+              {profile?.name ?? (isLoading ? "Loading…" : "Signed out")}
+            </div>
+            <div className="text-muted-foreground">
+              {profile?.persona ?? profile?.role ?? "Subscriber"}
+            </div>
           </div>
         </div>
-        <Badge variant="success">PRO</Badge>
+        <Badge variant="success">{planLabel}</Badge>
       </div>
+
+      {profileError && (
+        <p className="text-[11px] text-destructive" role="alert">
+          {profileError}
+        </p>
+      )}
 
       <div className="pt-2 border-t border-border flex items-center justify-between">
         <span className="text-xs text-muted-foreground font-medium">Theme</span>
@@ -116,7 +132,7 @@ export function ConsoleSidebar() {
 
       <div className="flex items-center justify-between pt-1 text-xs">
         <a
-          href="http://localhost:3000"
+          href={webUrl("/")}
           target="_blank"
           rel="noreferrer"
           className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"

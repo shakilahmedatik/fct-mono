@@ -86,9 +86,25 @@ export async function synthesizeAudioWithFailover(
       audioUrl: storageResult.audioUrl,
       durationSec: synthesisResult.durationSec,
       provider: synthesisResult.provider,
-      deliveryChannel: "telegram",
+      // The delivery channel is decided when the briefing is delivered.
+      deliveryChannel: null,
       deliveryStatus: "pending",
     });
+  }
+
+  // A digest whose audio only exists in the local storage tier is degraded:
+  // the URL may not be reachable for the recipient. The flag makes that
+  // detectable afterwards.
+  if (storageResult.storageTier !== "s3") {
+    await db
+      .update(schema.digests)
+      .set({ degraded: true, updatedAt: new Date() })
+      .where(eq(schema.digests.id, digestId));
+
+    workerLogger.warn(
+      { digestId, tier: storageResult.storageTier, audioUrl: storageResult.audioUrl },
+      "Audio was not stored in the object storage — the digest is marked as degraded",
+    );
   }
 
   workerLogger.info(

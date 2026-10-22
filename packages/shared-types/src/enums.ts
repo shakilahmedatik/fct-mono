@@ -1,38 +1,38 @@
+/**
+ * Shared enum contracts.
+ *
+ * The `SkillLevel`, `DigestStatus`, `AudioStatus`, `StoryStatus`,
+ * `ItemInteractionAction` and `UserRole` runtime objects were removed: nothing
+ * imported the values. The matching types are kept because they document the
+ * value domain of the corresponding database columns / pg enums (see
+ * `packages/db/src/schema/enums.ts`) and are part of the API contract.
+ */
+
 export const Plan = {
   FREE: "FREE",
   PRO: "PRO",
 } as const;
 export type Plan = (typeof Plan)[keyof typeof Plan];
 
-export const SkillLevel = {
-  BEGINNER: "beginner",
-  INTERMEDIATE: "intermediate",
-  ADVANCED: "advanced",
-} as const;
-export type SkillLevel = (typeof SkillLevel)[keyof typeof SkillLevel];
+/**
+ * Mirrors the `skill_level` pg enum.
+ */
+export type SkillLevel = "beginner" | "intermediate" | "advanced";
 
-export const DigestStatus = {
-  PENDING: "pending",
-  GENERATED: "generated",
-  DELIVERED: "delivered",
-  FAILED: "failed",
-} as const;
-export type DigestStatus = (typeof DigestStatus)[keyof typeof DigestStatus];
+/**
+ * Mirrors the `digest_status` pg enum.
+ */
+export type DigestStatus = "pending" | "generated" | "delivered" | "failed";
 
-export const AudioStatus = {
-  PENDING: "pending",
-  PROCESSING: "processing",
-  READY: "ready",
-  FAILED: "failed",
-} as const;
-export type AudioStatus = (typeof AudioStatus)[keyof typeof AudioStatus];
+/**
+ * Mirrors the `audio_status` pg enum.
+ */
+export type AudioStatus = "pending" | "processing" | "ready" | "failed";
 
-export const StoryStatus = {
-  ACTIVE: "active",
-  CLOSED: "closed",
-  ARCHIVED: "archived",
-} as const;
-export type StoryStatus = (typeof StoryStatus)[keyof typeof StoryStatus];
+/**
+ * Mirrors the `story_status` pg enum.
+ */
+export type StoryStatus = "active" | "closed" | "archived";
 
 export const FeedbackType = {
   HELPFUL: "helpful",
@@ -42,16 +42,16 @@ export const FeedbackType = {
 } as const;
 export type FeedbackType = (typeof FeedbackType)[keyof typeof FeedbackType];
 
-export const ItemInteractionAction = {
-  OPEN: "open",
-  CLICK: "click",
-  LISTEN_COMPLETE: "listen_complete",
-  LISTEN_SKIP: "listen_skip",
-  TELEGRAM_REACT: "telegram_react",
-  DELIVERY_FAILED: "delivery_failed",
-} as const;
+/**
+ * Mirrors the `item_interaction_action` pg enum.
+ */
 export type ItemInteractionAction =
-  (typeof ItemInteractionAction)[keyof typeof ItemInteractionAction];
+  | "open"
+  | "click"
+  | "listen_complete"
+  | "listen_skip"
+  | "telegram_react"
+  | "delivery_failed";
 
 export const DeliveryChannel = {
   TELEGRAM: "telegram",
@@ -62,8 +62,7 @@ export const DeliveryChannel = {
 } as const;
 export type DeliveryChannel = (typeof DeliveryChannel)[keyof typeof DeliveryChannel];
 
-export const UserRole = {
-  USER: "user",
-  ADMIN: "admin",
-} as const;
-export type UserRole = (typeof UserRole)[keyof typeof UserRole];
+/**
+ * The role values written to the `user.role` column.
+ */
+export type UserRole = "user" | "admin";

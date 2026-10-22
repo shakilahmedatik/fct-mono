@@ -4,7 +4,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   clearSession as apiClearSession,
   apiPost,
@@ -44,19 +44,9 @@ const DEFAULT_PARAMS: PipelineParameters = {
   selectedVoice: "",
 };
 
-const DEFAULT_AI_CONFIG = { baseURL: "", apiKey: "", model: "" };
-
 // =============================================================================
 // Helpers
 // =============================================================================
-
-function loadAiConfigFromStorage(): { baseURL: string; apiKey: string; model: string } {
-  try {
-    const raw = localStorage.getItem("fct_playground_ai_config");
-    if (raw) return { ...DEFAULT_AI_CONFIG, ...JSON.parse(raw) };
-  } catch {}
-  return DEFAULT_AI_CONFIG;
-}
 
 function loadSourcesFromStorage(): SourceDef[] | null {
   try {
@@ -114,12 +104,19 @@ export function usePipeline() {
   const [aiSettings, setAiSettings] = useState<AISettings | null>(null);
   const [aiProviders, setAiProviders] = useState<AIProviderStatus[]>([]);
 
+  /**
+   * The provider id sent as `x-ai-provider`. The server resolves the
+   * provider's base URL, API key and model from its own configuration, so the
+   * browser only selects *which* known provider to use.
+   */
+  const providerId = useMemo(() => {
+    const active = aiProviders.find((p) => p.isActive);
+    return active?.id ?? aiSettings?.activeProvider;
+  }, [aiProviders, aiSettings]);
+
   // --- Audio Settings & Introspection ---
   const [audioSettings, setAudioSettings] = useState<AudioSettings | null>(null);
   const [audioStatuses, setAudioStatuses] = useState<AudioProviderStatus[]>([]);
-
-  // --- AI config ---
-  const [aiConfig, setAiConfig] = useState(DEFAULT_AI_CONFIG);
 
   // --- Pipeline parameters ---
   const [params, setParams] = useState<PipelineParameters>(DEFAULT_PARAMS);
@@ -147,7 +144,6 @@ export function usePipeline() {
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
-    setAiConfig(loadAiConfigFromStorage());
     setPresets(loadPresetsFromStorage());
 
     initSession();
@@ -190,13 +186,6 @@ export function usePipeline() {
       localStorage.setItem("fct_playground_sources", JSON.stringify(sources));
     }
   }, [sources]);
-
-  // Save AI config
-  useEffect(() => {
-    if (aiConfig.baseURL || aiConfig.apiKey || aiConfig.model) {
-      localStorage.setItem("fct_playground_ai_config", JSON.stringify(aiConfig));
-    }
-  }, [aiConfig]);
 
   // Persist presets
   useEffect(() => {
@@ -507,28 +496,28 @@ export function usePipeline() {
     return apiPost(
       "/tier1/ingest",
       { sessionId: sid, sourceOverrides: enabledOverrides },
-      aiConfig,
+      providerId,
     );
   }
 
   async function runNormalize(sid: string) {
-    return apiPost("/tier2/normalize", { sessionId: sid }, aiConfig);
+    return apiPost("/tier2/normalize", { sessionId: sid }, providerId);
   }
 
   async function runCluster(sid: string) {
     return apiPost(
       "/tier2/cluster",
       { sessionId: sid, clusterThreshold: params.clusterThreshold },
-      aiConfig,
+      providerId,
     );
   }
 
   async function runRank(sid: string) {
-    return apiPost("/tier3/rank", { sessionId: sid, limit: params.rankLimit }, aiConfig);
+    return apiPost("/tier3/rank", { sessionId: sid, limit: params.rankLimit }, providerId);
   }
 
   async function runDigest(sid: string) {
-    return apiPost("/tier3/digest", { sessionId: sid, persist: false }, aiConfig);
+    return apiPost("/tier3/digest", { sessionId: sid, persist: false }, providerId);
   }
 
   async function runAudioScript(sid: string) {
@@ -539,7 +528,7 @@ export function usePipeline() {
         targetMinDuration: params.targetMinDuration,
         targetMaxDuration: params.targetMaxDuration,
       },
-      aiConfig,
+      providerId,
     );
   }
 
@@ -555,36 +544,52 @@ export function usePipeline() {
         provider: params.selectedProvider,
         voiceId: voice,
       },
-      aiConfig,
+      providerId,
     );
   }
 
   async function runBlog(sid: string) {
-    return apiPost("/tier3/blog", { sessionId: sid, persist: false }, aiConfig);
+    return apiPost("/tier3/blog", { sessionId: sid, persist: false }, providerId);
   }
 
   async function runEmail(sid: string) {
-    return apiPost("/tier3/email", { sessionId: sid }, aiConfig);
+    return apiPost("/tier3/email", { sessionId: sid }, providerId);
   }
 
   async function runEnqueueProd(sid: string) {
-    return apiPost("/tier4/enqueue-prod", { sessionId: sid }, aiConfig);
+    return apiPost("/tier4/enqueue-prod", { sessionId: sid }, providerId);
   }
 
   /**
    * Run the full pipeline sequentially. Stops on the first failure and logs
    * clearly which step broke. Used by the "Run Full Pipeline" button.
+   *
+   * Every step is executed: `completedSteps` is a snapshot taken when the
+   * hook rendered, and running a step invalidates all of its downstream steps
+   * anyway, so consulting the snapshot would skip steps that still had to run
+   * — and then log that everything completed.
    */
   async function runFullPipeline() {
-    for (const id of PIPELINE_STEP_IDS) {
-      // Skip email + enqueue_prod; those aren't part of the autonomous pipeline
-      if (id === "enqueue_prod") break;
-      if (!completedSteps.has(id) || id === "ingest" || id === "normalize") {
-        const result = await executeStep(id);
-        if (!result || !(result as { success?: boolean }).success) return;
+    // `enqueue_prod` is not part of the autonomous pipeline run.
+    const stepsToRun = PIPELINE_STEP_IDS.filter((id) => id !== "enqueue_prod");
+    const executed: PlaygroundStep[] = [];
+
+    for (const id of stepsToRun) {
+      const result = await executeStep(id);
+      if (!result || !(result as { success?: boolean }).success) {
+        addLog(
+          "warn",
+          `Pipeline stopped after ${executed.length} of ${stepsToRun.length} steps — ${id} did not complete.`,
+        );
+        return;
       }
+      executed.push(id);
     }
-    addLog("success", "🎉 All pipeline steps completed.");
+
+    addLog(
+      "success",
+      `✅ ${executed.length} of ${stepsToRun.length} pipeline steps completed (production enqueue was not run).`,
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -729,8 +734,7 @@ export function usePipeline() {
     addCustomRss,
     removeCustomRss,
     // ai
-    aiConfig,
-    setAiConfig,
+    providerId,
     showAiConfig,
     setShowAiConfig,
     aiSettings,

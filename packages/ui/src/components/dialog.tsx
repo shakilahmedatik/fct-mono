@@ -77,8 +77,39 @@ export interface DialogContentProps extends React.HTMLAttributes<HTMLDivElement>
   hideCloseButton?: boolean;
 }
 
-const FOCUSABLE_SELECTOR =
-  'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+/**
+ * Focusable candidates.
+ *
+ * `input` is matched by type, so `input[type="hidden"]` has to be excluded
+ * explicitly (hidden inputs are not focusable). `iframe`, `object`, `embed`,
+ * `summary` and `[contenteditable]` are natively focusable and were missing.
+ */
+const FOCUSABLE_SELECTOR = [
+  "button",
+  "[href]",
+  "input:not([type='hidden'])",
+  "select",
+  "textarea",
+  "iframe",
+  "object",
+  "embed",
+  "summary",
+  "[contenteditable]:not([contenteditable='false'])",
+  '[tabindex]:not([tabindex="-1"])',
+].join(", ");
+
+/** Elements that are visually present but cannot receive focus. */
+function isHiddenElement(el: HTMLElement): boolean {
+  if (el.hasAttribute("hidden")) return true;
+  if (el.getAttribute("aria-hidden") === "true") return true;
+  // `display: none` / `visibility: hidden` subtrees are not focusable.
+  const view = el.ownerDocument?.defaultView;
+  if (view && typeof view.getComputedStyle === "function") {
+    const style = view.getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden") return true;
+  }
+  return false;
+}
 
 function getFocusableElements(container: HTMLElement): HTMLElement[] {
   const elements = Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
@@ -86,7 +117,7 @@ function getFocusableElements(container: HTMLElement): HTMLElement[] {
     if (el.hasAttribute("disabled") || el.getAttribute("aria-disabled") === "true") {
       return false;
     }
-    if (el.getAttribute("aria-hidden") === "true") {
+    if (isHiddenElement(el)) {
       return false;
     }
     if (el.getAttribute("tabindex") === "-1") {

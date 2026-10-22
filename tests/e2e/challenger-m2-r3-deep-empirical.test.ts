@@ -37,11 +37,11 @@ describe("Challenger 2 Round 3: Empirical Stress & Edge Case Harness", () => {
   describe("1. Tooltip SSR & Accessibility", () => {
     test("1.1 defaultOpen={true} renders tooltip text and connects aria-describedby in SSR static HTML", () => {
       const inspector = inspectHtml(
-        el(
-          Tooltip,
-          { content: "Tooltip text defaultOpen", defaultOpen: true },
-          el("button", { type: "button" }, "Trigger Button"),
-        ),
+        el(Tooltip, {
+          content: "Tooltip text defaultOpen",
+          defaultOpen: true,
+          children: el("button", { type: "button" }, "Trigger Button"),
+        }),
       );
 
       // Verify content is present
@@ -62,11 +62,11 @@ describe("Challenger 2 Round 3: Empirical Stress & Edge Case Harness", () => {
 
     test("1.2 forceMount={true} renders tooltip text with hidden attribute and data-state='closed' in SSR", () => {
       const inspector = inspectHtml(
-        el(
-          Tooltip,
-          { content: "Tooltip text forceMount", forceMount: true },
-          el("button", { type: "button" }, "Target Element"),
-        ),
+        el(Tooltip, {
+          content: "Tooltip text forceMount",
+          forceMount: true,
+          children: el("button", { type: "button" }, "Target Element"),
+        }),
       );
 
       // Verify content is present in HTML
@@ -86,11 +86,10 @@ describe("Challenger 2 Round 3: Empirical Stress & Edge Case Harness", () => {
 
     test("1.3 defaultOpen=false & forceMount=false (default) lazily unmounts tooltip in SSR static HTML", () => {
       const inspector = inspectHtml(
-        el(
-          Tooltip,
-          { content: "Should not appear in static HTML" },
-          el("button", { type: "button" }, "Normal Trigger"),
-        ),
+        el(Tooltip, {
+          content: "Should not appear in static HTML",
+          children: el("button", { type: "button" }, "Normal Trigger"),
+        }),
       );
 
       // Content and tooltip container MUST NOT appear in static HTML
@@ -102,11 +101,12 @@ describe("Challenger 2 Round 3: Empirical Stress & Edge Case Harness", () => {
 
     test("1.4 Tooltip with explicit id prop binds trigger aria-describedby to explicit id", () => {
       const inspector = inspectHtml(
-        el(
-          Tooltip,
-          { id: "custom-tooltip-id-999", content: "Explicit ID text", defaultOpen: true },
-          el("button", { type: "button" }, "Trigger"),
-        ),
+        el(Tooltip, {
+          id: "custom-tooltip-id-999",
+          content: "Explicit ID text",
+          defaultOpen: true,
+          children: el("button", { type: "button" }, "Trigger"),
+        }),
       );
 
       expect(inspector.contains('aria-describedby="custom-tooltip-id-999"')).toBeTrue();
@@ -115,15 +115,16 @@ describe("Challenger 2 Round 3: Empirical Stress & Edge Case Harness", () => {
 
     test("1.5 Tooltip preserves pre-existing aria-describedby on trigger element", () => {
       const inspector = inspectHtml(
-        el(
-          Tooltip,
-          { id: "my-tip", content: "Appended tip", defaultOpen: true },
-          el(
+        el(Tooltip, {
+          id: "my-tip",
+          content: "Appended tip",
+          defaultOpen: true,
+          children: el(
             "button",
             { type: "button", "aria-describedby": "existing-help-text" },
             "Trigger with Help",
           ),
-        ),
+        }),
       );
 
       expect(inspector.contains('aria-describedby="existing-help-text my-tip"')).toBeTrue();
@@ -131,21 +132,21 @@ describe("Challenger 2 Round 3: Empirical Stress & Edge Case Harness", () => {
 
     test("1.6 Tooltip with null or empty content suppresses aria-describedby and popup markup", () => {
       const inspectorNull = inspectHtml(
-        el(
-          Tooltip,
-          { content: null, defaultOpen: true },
-          el("button", { type: "button" }, "Null Content"),
-        ),
+        el(Tooltip, {
+          content: null,
+          defaultOpen: true,
+          children: el("button", { type: "button" }, "Null Content"),
+        }),
       );
       expect(inspectorNull.contains("aria-describedby")).toBeFalse();
       expect(inspectorNull.contains('role="tooltip"')).toBeFalse();
 
       const inspectorEmpty = inspectHtml(
-        el(
-          Tooltip,
-          { content: "", forceMount: true },
-          el("button", { type: "button" }, "Empty Content"),
-        ),
+        el(Tooltip, {
+          content: "",
+          forceMount: true,
+          children: el("button", { type: "button" }, "Empty Content"),
+        }),
       );
       expect(inspectorEmpty.contains("aria-describedby")).toBeFalse();
       expect(inspectorEmpty.contains('role="tooltip"')).toBeFalse();
@@ -153,21 +154,21 @@ describe("Challenger 2 Round 3: Empirical Stress & Edge Case Harness", () => {
 
     test("1.7 Controlled Tooltip: open={true} vs open={false}", () => {
       const inspectorOpen = inspectHtml(
-        el(
-          Tooltip,
-          { content: "Controlled Open", open: true },
-          el("button", { type: "button" }, "Open Trigger"),
-        ),
+        el(Tooltip, {
+          content: "Controlled Open",
+          open: true,
+          children: el("button", { type: "button" }, "Open Trigger"),
+        }),
       );
       expect(inspectorOpen.contains("Controlled Open")).toBeTrue();
       expect(inspectorOpen.contains('data-state="open"')).toBeTrue();
 
       const inspectorClosed = inspectHtml(
-        el(
-          Tooltip,
-          { content: "Controlled Closed", open: false },
-          el("button", { type: "button" }, "Closed Trigger"),
-        ),
+        el(Tooltip, {
+          content: "Controlled Closed",
+          open: false,
+          children: el("button", { type: "button" }, "Closed Trigger"),
+        }),
       );
       expect(inspectorClosed.contains("Controlled Closed")).toBeFalse();
       expect(inspectorClosed.contains('role="tooltip"')).toBeFalse();
@@ -177,11 +178,12 @@ describe("Challenger 2 Round 3: Empirical Stress & Edge Case Harness", () => {
       const sides = ["top", "bottom", "left", "right"] as const;
       for (const side of sides) {
         const inspector = inspectHtml(
-          el(
-            Tooltip,
-            { content: `Side ${side}`, side, defaultOpen: true },
-            el("span", null, "Target"),
-          ),
+          el(Tooltip, {
+            content: `Side ${side}`,
+            side,
+            defaultOpen: true,
+            children: el("span", null, "Target"),
+          }),
         );
         expect(inspector.contains(`data-side="${side}"`)).toBeTrue();
         expect(inspector.contains(sideClasses[side])).toBeTrue();
@@ -190,11 +192,11 @@ describe("Challenger 2 Round 3: Empirical Stress & Edge Case Harness", () => {
 
     test("1.9 SSR execution produces valid markup without warnings or errors", () => {
       const inspector = inspectHtml(
-        el(
-          Tooltip,
-          { content: "Hydration check", defaultOpen: true },
-          el("button", { type: "button" }, "SSR Button"),
-        ),
+        el(Tooltip, {
+          content: "Hydration check",
+          defaultOpen: true,
+          children: el("button", { type: "button" }, "SSR Button"),
+        }),
       );
       expect(inspector.html.length).toBeGreaterThan(0);
       expect(inspector.contains("Hydration check")).toBeTrue();
@@ -202,7 +204,11 @@ describe("Challenger 2 Round 3: Empirical Stress & Edge Case Harness", () => {
 
     test("1.10 Tooltip safely handles non-element children (plain text) without crash", () => {
       const inspector = inspectHtml(
-        el(Tooltip, { content: "Text hover info", defaultOpen: true }, "Plain text trigger"),
+        el(Tooltip, {
+          content: "Text hover info",
+          defaultOpen: true,
+          children: "Plain text trigger",
+        }),
       );
       expect(inspector.contains("Plain text trigger")).toBeTrue();
       expect(inspector.contains("Text hover info")).toBeTrue();

@@ -108,12 +108,25 @@ export async function uploadAudioBuffer(
       key,
     };
   } catch (s3Error: unknown) {
+    const s3Message = s3Error instanceof Error ? s3Error.message : String(s3Error);
     workerLogger.warn(
-      { err: s3Error instanceof Error ? s3Error.message : String(s3Error) },
+      { err: s3Message },
       "S3 upload failed. Falling back to local filesystem storage...",
     );
 
-    // Tier 2: Local Filesystem Storage Fallback
+    // Tier 2: Local Filesystem Storage Fallback.
+    //
+    // The fallback is opt-in: without an explicit `LOCAL_AUDIO_BASE_URL` the
+    // job fails instead of publishing a URL that points at the recipient's
+    // own machine (http://localhost:3000/...) or at a sample recording that
+    // has nothing to do with the briefing of this user.
+    const localBaseUrl = process.env.LOCAL_AUDIO_BASE_URL?.trim();
+    if (!localBaseUrl) {
+      throw new Error(
+        `Audio storage failed and no local fallback is configured (set LOCAL_AUDIO_BASE_URL to enable the local storage tier): ${s3Message}`,
+      );
+    }
+
     try {
       const localDir = path.resolve(process.cwd(), "public/audio");
       if (!fs.existsSync(localDir)) {
@@ -122,8 +135,11 @@ export async function uploadAudioBuffer(
       const localFilePath = path.join(localDir, `${digestId}.${format}`);
       fs.writeFileSync(localFilePath, buffer);
 
-      const localUrl = `http://localhost:3000/audio/${digestId}.${format}`;
-      workerLogger.info({ localUrl }, "Audio saved to local filesystem fallback.");
+      const localUrl = `${localBaseUrl.replace(/\/$/, "")}/${key}`;
+      workerLogger.warn(
+        { localUrl },
+        "Audio stored on the local filesystem — the result is degraded",
+      );
 
       return {
         audioUrl: localUrl,
@@ -131,17 +147,11 @@ export async function uploadAudioBuffer(
         key,
       };
     } catch (localErr: unknown) {
-      workerLogger.error(
-        { err: localErr instanceof Error ? localErr.message : String(localErr) },
-        "Local filesystem storage failed. Returning public sample audio URL.",
+      throw new Error(
+        `Audio storage failed: S3 error: ${s3Message}; local storage error: ${
+          localErr instanceof Error ? localErr.message : String(localErr)
+        }`,
       );
-
-      // Tier 3: Sample Audio URL Fallback
-      return {
-        audioUrl: "https://storage.firstcup.tech/sample-brief.mp3",
-        storageTier: "sample",
-        key,
-      };
     }
   }
 }

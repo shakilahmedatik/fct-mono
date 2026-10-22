@@ -1,31 +1,15 @@
-export const DEFAULT_TOPICS = ["ai", "startups", "engineering", "devops"] as const;
+/**
+ * Shared constants.
+ *
+ * `DEFAULT_TOPICS`, `AVAILABLE_TOPICS`, `DEFAULT_DELIVERY_HOUR`,
+ * `DEFAULT_TIMEZONE`, `PERSONA_OPTIONS` and `AUTH_COOKIE_NAME` were removed:
+ * nothing imported them. The defaults they held now live where they are
+ * actually used — in the database column defaults (`packages/db/src/schema`)
+ * and in the zod validators (`packages/shared-types/src/validators`).
+ */
 
-export const AVAILABLE_TOPICS = [
-  "ai",
-  "startups",
-  "engineering",
-  "devops",
-  "security",
-  "frontend",
-  "backend",
-  "data-science",
-  "mobile",
-  "cloud",
-] as const;
-
-export const DEFAULT_DELIVERY_HOUR = 7; // 7:00 AM local time
-export const DEFAULT_TIMEZONE = "UTC";
-
-export const PERSONA_OPTIONS = [
-  "Founder / CEO",
-  "CTO",
-  "Tech Lead",
-  "Senior Developer",
-  "Software Engineer",
-  "Product Manager",
-  "Engineering Student",
-  "Indie Hacker",
-] as const;
-
-export const AUTH_COOKIE_NAME = "firstcup_session";
+/**
+ * Domain the auth cookies are scoped to. The API reads this from the
+ * `COOKIE_DOMAIN` environment variable (see apps/api/src/auth.ts).
+ */
 export const COOKIE_DOMAIN = ".firstcup.tech";

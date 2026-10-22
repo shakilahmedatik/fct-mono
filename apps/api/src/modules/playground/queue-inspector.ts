@@ -2,23 +2,24 @@
 // BullMQ Queue Inspector — Dashboard data for playground
 // =============================================================================
 
-import { Queue } from "bullmq";
-import { redis } from "../../lib/redis";
+import type { Queue } from "bullmq";
+import { QUEUE_NAMES, queues as sharedQueues } from "../../lib/queue-client";
 
-const QUEUE_NAMES = [
-  "digest-pipeline",
-  "audio-generation",
-  "telegram-delivery",
-  "email-delivery",
-] as const;
+/**
+ * A single set of Queue instances is shared with the rest of the API.
+ *
+ * Previously this module instantiated its own four Queue objects, so the same
+ * four queue names existed as two independent sets — two sources of truth,
+ * and nothing was ever closed on shutdown.
+ */
+const queues: Queue[] = [
+  sharedQueues.digest,
+  sharedQueues.audio,
+  sharedQueues.telegram,
+  sharedQueues.email,
+];
 
-// Reuse queue instances for introspection
-const queues = QUEUE_NAMES.map(
-  (name) =>
-    new Queue(name, {
-      connection: redis,
-    }),
-);
+export const KNOWN_QUEUE_NAMES = Object.values(QUEUE_NAMES);
 
 export interface QueueStatus {
   name: string;

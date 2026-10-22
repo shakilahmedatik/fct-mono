@@ -14,11 +14,14 @@ import {
 import { Activity, ExternalLink, FlaskConical, Menu, Radio, Shield, Users, X } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import * as React from "react";
+import { appUrl, webUrl } from "../lib/config";
+import { initialsFor, useProfile } from "../lib/use-profile";
 
 export function AdminSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = React.useState(false);
+  const { profile, isLoading, error: profileError } = useProfile();
 
   // Close mobile drawer on route change
   React.useEffect(() => {
@@ -89,6 +92,29 @@ export function AdminSidebar() {
         <Badge variant="outline">Bun 1.3</Badge>
       </div>
 
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="h-6 w-6 shrink-0 rounded-full bg-accent/20 text-accent flex items-center justify-center font-bold text-[10px] border border-accent/30">
+            {initialsFor(profile?.name)}
+          </div>
+          <div className="min-w-0">
+            <div className="font-semibold text-foreground truncate">
+              {profile?.name ?? (isLoading ? "Loading…" : "Signed out")}
+            </div>
+            <div className="text-muted-foreground truncate">
+              {profile?.role ? `Role: ${profile.role}` : "Administrator"}
+            </div>
+          </div>
+        </div>
+        <Badge variant="outline">{profile?.email ?? "—"}</Badge>
+      </div>
+
+      {profileError && (
+        <p className="text-[11px] text-destructive" role="alert">
+          {profileError}
+        </p>
+      )}
+
       <div className="pt-2 border-t border-border flex items-center justify-between">
         <span className="text-xs text-muted-foreground font-medium">Theme</span>
         <ThemeToggle variant="segmented" />
@@ -96,7 +122,7 @@ export function AdminSidebar() {
 
       <div className="flex items-center justify-between pt-1 text-xs">
         <a
-          href="http://localhost:3001"
+          href={appUrl("/")}
           target="_blank"
           rel="noreferrer"
           className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
@@ -105,7 +131,7 @@ export function AdminSidebar() {
           <ExternalLink className="h-3 w-3" />
         </a>
         <a
-          href="http://localhost:3000"
+          href={webUrl("/")}
           target="_blank"
           rel="noreferrer"
           className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"

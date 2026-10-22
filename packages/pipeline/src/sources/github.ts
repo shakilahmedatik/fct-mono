@@ -1,3 +1,4 @@
+import { logger } from "../stages/logger";
 import type { RawSignal } from "../types";
 
 interface GitHubSearchItem {
@@ -23,9 +24,15 @@ export async function fetchGitHubSignals(
   };
   if (token) {
     headers.Authorization = `Bearer ${token}`;
+  } else {
+    logger.warn(
+      { topics: topics.length, perTopic },
+      "GITHUB_TOKEN is not configured — the unauthenticated GitHub search API allows only ~10 requests per minute",
+    );
   }
 
   const signals: RawSignal[] = [];
+  const failures: string[] = [];
 
   for (const topic of topics) {
     try {
@@ -35,10 +42,24 @@ export async function fetchGitHubSignals(
         signal: AbortSignal.timeout(5000),
       });
 
-      if (!res.ok) continue;
+      if (!res.ok) {
+        // A rate limited (403/429) response affects the whole run, so it is
+        // surfaced as a source error instead of being dropped silently.
+        if (res.status === 403 || res.status === 429) {
+          throw new Error(
+            `GitHub search API rate limit reached (HTTP ${res.status}) for topic "${topic}". Configure GITHUB_TOKEN to raise the limit.`,
+          );
+        }
+        failures.push(`topic "${topic}": HTTP ${res.status}`);
+        logger.warn({ topic, status: res.status }, "GitHub search request failed");
+        continue;
+      }
 
       const data = (await res.json()) as { items?: GitHubSearchItem[] };
-      if (!data.items) continue;
+      if (!data.items) {
+        failures.push(`topic "${topic}": malformed response`);
+        continue;
+      }
 
       for (const item of data.items) {
         if (!item.full_name || !item.html_url) continue;
@@ -56,9 +77,19 @@ export async function fetchGitHubSignals(
           ),
         });
       }
-    } catch {
-      // Continue next topic
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (err instanceof Error && err.message.includes("rate limit")) {
+        // Surface the rate limit as a source error.
+        throw err;
+      }
+      failures.push(`topic "${topic}": ${message}`);
+      logger.warn({ topic, err: message }, "GitHub search request failed");
     }
+  }
+
+  if (signals.length === 0 && failures.length > 0) {
+    throw new Error(`GitHub source failed for every topic — ${failures.join("; ")}`);
   }
 
   return signals;

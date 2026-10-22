@@ -7,8 +7,39 @@ import { redis } from "../../lib/redis";
 const CACHE_TTL = 7200; // 2 hours
 const KEY_PREFIX = "playground";
 
+/**
+ * The global session index.
+ *
+ * It is a sorted set scored by the session's last activity timestamp rather
+ * than a plain set: a plain set had no TTL and no size bound, so every
+ * session ever created accumulated forever, and listing them issued one Redis
+ * command per member.
+ */
+const SESSIONS_KEY = `${KEY_PREFIX}:sessions`;
+const MAX_SESSIONS = 500;
+
+/** Sessions older than this are pruned from the index. */
+const SESSION_INDEX_TTL = 24 * 60 * 60;
+
 function key(sessionId: string, ...parts: string[]): string {
   return `${KEY_PREFIX}:${sessionId}:${parts.join(":")}`;
+}
+
+/**
+ * Record a session in the global index and prune the index.
+ *
+ * Pruning happens on write so the index cannot grow without bound, and stale
+ * entries disappear on their own even if no further writes occur.
+ */
+async function registerSession(sessionId: string): Promise<void> {
+  const score = Date.now();
+  await redis
+    .multi()
+    .zadd(SESSIONS_KEY, score, sessionId)
+    .zremrangebyscore(SESSIONS_KEY, 0, score - SESSION_INDEX_TTL * 1000)
+    .zremrangebyrank(SESSIONS_KEY, 0, -(MAX_SESSIONS + 1))
+    .expire(SESSIONS_KEY, SESSION_INDEX_TTL)
+    .exec();
 }
 
 export async function cacheSet(sessionId: string, step: string, data: string): Promise<void> {
@@ -17,15 +48,16 @@ export async function cacheSet(sessionId: string, step: string, data: string): P
   const metaKey = key(sessionId, "_meta");
   const metaValue = JSON.stringify({ lastActivity: new Date().toISOString() });
 
-  // Single pipeline: SET step data, SADD to step-set + global sessions, EXPIRE step-set,
+  // Single pipeline: SET step data, SADD to step-set, EXPIRE step-set,
   // SET meta with TTL — one round-trip instead of five.
   const pipeline = redis.pipeline();
   pipeline.set(k, data, "EX", CACHE_TTL);
   pipeline.sadd(stepsKey, step);
   pipeline.expire(stepsKey, CACHE_TTL);
-  pipeline.sadd("playground_sessions", sessionId);
   pipeline.set(metaKey, metaValue, "EX", CACHE_TTL);
   await pipeline.exec();
+
+  await registerSession(sessionId);
 }
 
 export async function cacheGet(sessionId: string, step: string): Promise<string | null> {
@@ -46,7 +78,7 @@ export async function cacheClear(sessionId: string): Promise<void> {
   if (keys.length > 0) {
     await redis.del(...keys);
   }
-  await redis.srem("playground_sessions", sessionId);
+  await redis.zrem(SESSIONS_KEY, sessionId);
 }
 
 export async function getCacheStatus(sessionId: string): Promise<{
@@ -67,11 +99,11 @@ export async function getCacheStatus(sessionId: string): Promise<{
 export async function listAllSessions(): Promise<
   { sessionId: string; lastActivity: string | null }[]
 > {
-  const sessionIds = await redis.smembers("playground_sessions");
+  // Only the most recent sessions, newest first. The previous implementation
+  // read every member of an unbounded set and issued one GET per member.
+  const sessionIds = await redis.zrevrange(SESSIONS_KEY, 0, MAX_SESSIONS - 1);
   if (sessionIds.length === 0) return [];
 
-  // One pipeline round-trip for all session metas, plus a cleanup pipeline for any
-  // sessions whose meta key has already expired.
   const metaPipeline = redis.pipeline();
   for (const id of sessionIds) metaPipeline.get(key(id, "_meta"));
   const results = await metaPipeline.exec();
@@ -96,12 +128,8 @@ export async function listAllSessions(): Promise<
   });
 
   if (toCleanup.length > 0) {
-    await redis.srem("playground_sessions", ...toCleanup);
+    await redis.zrem(SESSIONS_KEY, ...toCleanup);
   }
 
-  // Sort by newest first
-  return sessions.sort((a, b) => {
-    if (!a.lastActivity || !b.lastActivity) return 0;
-    return new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime();
-  });
+  return sessions;
 }

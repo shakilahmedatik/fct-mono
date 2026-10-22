@@ -130,24 +130,20 @@ export function AiConfigPanel({ settings, providers, onRefresh }: Props) {
 
                 {/* Details */}
                 <div className="rounded-lg bg-background/50 border border-border/40 p-2.5 space-y-1.5 text-[11px]">
+                  {/*
+                    The server owns the provider's base URL and API key — it
+                    resolves both from its own configuration and no longer
+                    reports them to the browser. Only readiness and the model
+                    identifier are shown here.
+                  */}
                   <div className="flex items-center justify-between text-muted-foreground">
-                    <span>Base URL:</span>
-                    <span
-                      className="font-mono text-[10px] text-foreground truncate max-w-[170px]"
-                      title={p.baseURL}
-                    >
-                      {p.baseURL}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between text-muted-foreground">
-                    <span>API Key:</span>
+                    <span>Status:</span>
                     <span className="font-mono text-[10px] text-foreground">
-                      {p.maskedKey
-                        ? `••••${p.maskedKey}`
+                      {p.isAvailable
+                        ? "Available"
                         : p.isConfigured
-                          ? "Local (no key)"
-                          : "Missing"}
+                          ? "Configured"
+                          : "Not configured"}
                     </span>
                   </div>
 

@@ -61,14 +61,18 @@ describe("Shared Types Validators", () => {
   });
 
   describe("userPreferenceSchema", () => {
+    const basePreferences = {
+      topics: ["ai", "systems"],
+      skillLevel: "advanced",
+      timezone: "America/New_York",
+      deliveryHour: 8,
+      audioEnabled: true,
+      channelEnabled: true,
+    };
+
     it("validates valid preferences payload", () => {
       const parsed = userPreferenceSchema.parse({
-        topics: ["ai", "systems"],
-        skillLevel: "advanced",
-        timezone: "America/New_York",
-        deliveryHour: 8,
-        audioEnabled: true,
-        channelEnabled: true,
+        ...basePreferences,
       });
       expect(parsed.topics).toEqual(["ai", "systems"]);
       expect(parsed.deliveryHour).toBe(8);
@@ -77,13 +81,89 @@ describe("Shared Types Validators", () => {
     it("rejects empty topics list", () => {
       expect(() =>
         userPreferenceSchema.parse({
+          ...basePreferences,
           topics: [],
-          skillLevel: "advanced",
-          timezone: "UTC",
-          deliveryHour: 7,
-          audioEnabled: true,
-          channelEnabled: true,
         }),
+      ).toThrow();
+    });
+
+    it("accepts an IANA time zone", () => {
+      expect(
+        userPreferenceSchema.parse({ ...basePreferences, timezone: "Asia/Dhaka" }).timezone,
+      ).toBe("Asia/Dhaka");
+      expect(userPreferenceSchema.parse({ ...basePreferences, timezone: "UTC" }).timezone).toBe(
+        "UTC",
+      );
+    });
+
+    it("rejects an unknown time zone", () => {
+      expect(() =>
+        userPreferenceSchema.parse({ ...basePreferences, timezone: "Not/AZone" }),
+      ).toThrow();
+    });
+
+    it("defaults the delivery preference fields when they are omitted", () => {
+      const parsed = userPreferenceSchema.parse({ ...basePreferences });
+      expect(parsed.deliveryCadence).toBe("daily");
+      expect(parsed.voicePersona).toBe("neutral");
+      expect(parsed.playbackSpeed).toBe(1);
+      expect(parsed.emailDigest).toBe(true);
+      expect(parsed.emailAlerts).toBe(true);
+    });
+
+    it("accepts the three supported delivery cadences", () => {
+      for (const deliveryCadence of ["daily", "weekly", "monthly"] as const) {
+        const parsed = userPreferenceSchema.parse({ ...basePreferences, deliveryCadence });
+        expect(parsed.deliveryCadence).toBe(deliveryCadence);
+      }
+    });
+
+    it("rejects an unsupported delivery cadence", () => {
+      expect(() =>
+        userPreferenceSchema.parse({ ...basePreferences, deliveryCadence: "hourly" }),
+      ).toThrow();
+    });
+
+    it("accepts a non-empty voice persona", () => {
+      const parsed = userPreferenceSchema.parse({ ...basePreferences, voicePersona: "energetic" });
+      expect(parsed.voicePersona).toBe("energetic");
+    });
+
+    it("rejects an empty voice persona", () => {
+      expect(() =>
+        userPreferenceSchema.parse({ ...basePreferences, voicePersona: "   " }),
+      ).toThrow();
+    });
+
+    it("accepts playback speeds inside the 0.5 - 2.0 range", () => {
+      for (const playbackSpeed of [0.5, 1, 1.25, 2]) {
+        const parsed = userPreferenceSchema.parse({ ...basePreferences, playbackSpeed });
+        expect(parsed.playbackSpeed).toBe(playbackSpeed);
+      }
+    });
+
+    it("rejects playback speeds outside the 0.5 - 2.0 range", () => {
+      expect(() =>
+        userPreferenceSchema.parse({ ...basePreferences, playbackSpeed: 0.25 }),
+      ).toThrow();
+      expect(() =>
+        userPreferenceSchema.parse({ ...basePreferences, playbackSpeed: 2.5 }),
+      ).toThrow();
+    });
+
+    it("accepts the email preference toggles", () => {
+      const parsed = userPreferenceSchema.parse({
+        ...basePreferences,
+        emailDigest: false,
+        emailAlerts: false,
+      });
+      expect(parsed.emailDigest).toBe(false);
+      expect(parsed.emailAlerts).toBe(false);
+    });
+
+    it("rejects non-boolean email preference toggles", () => {
+      expect(() =>
+        userPreferenceSchema.parse({ ...basePreferences, emailDigest: "yes" }),
       ).toThrow();
     });
   });

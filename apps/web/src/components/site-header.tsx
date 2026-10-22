@@ -15,6 +15,7 @@ import {
 import { ArrowRight, Coffee } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { appUrl } from "../lib/config";
 
 interface NavLinkItem {
   href: string;
@@ -56,7 +57,7 @@ function MobileNavDrawer({ navLinks }: { navLinks: NavLinkItem[] }) {
 
         <div className="flex flex-col gap-2 pt-1">
           <a
-            href="http://localhost:3001"
+            href={appUrl("/")}
             onClick={() => navbar?.setMobileOpen(false)}
             className={cn(
               buttonVariants({ variant: "primary", size: "md" }),
@@ -67,7 +68,7 @@ function MobileNavDrawer({ navLinks }: { navLinks: NavLinkItem[] }) {
             <ArrowRight className="h-4 w-4" />
           </a>
           <a
-            href="http://localhost:3001/login"
+            href={appUrl("/login")}
             onClick={() => navbar?.setMobileOpen(false)}
             className={cn(
               buttonVariants({ variant: "outline", size: "md" }),
@@ -131,7 +132,7 @@ export function SiteHeader() {
       <NavbarActions>
         <ThemeToggle variant="dropdown" align="end" />
         <a
-          href="http://localhost:3001/login"
+          href={appUrl("/login")}
           className={cn(
             buttonVariants({ variant: "ghost", size: "sm" }),
             "hidden sm:inline-flex text-muted-foreground hover:text-foreground font-medium",
@@ -140,7 +141,7 @@ export function SiteHeader() {
           Sign In
         </a>
         <a
-          href="http://localhost:3001"
+          href={appUrl("/")}
           className={cn(
             buttonVariants({ variant: "primary", size: "sm" }),
             "gap-1.5 shadow-xs font-semibold",

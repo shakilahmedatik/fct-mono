@@ -18,7 +18,7 @@ import {
   SelectOption,
   Switch,
 } from "@repo/ui";
-import { Bell, CheckCircle2, Headphones, Layers, RotateCcw, Save, Send } from "lucide-react";
+import { AlertCircle, Bell, Headphones, Layers, RotateCcw, Save, Send } from "lucide-react";
 import * as React from "react";
 
 export interface TopicOption {
@@ -27,6 +27,14 @@ export interface TopicOption {
   category: string;
   description: string;
 }
+
+/**
+ * The delivery cadence values accepted by `userPreferenceSchema`. The form
+ * used to offer "weekdays" and "realtime", which the API rejects.
+ */
+type DeliveryCadence = "daily" | "weekly" | "monthly";
+
+type SkillLevel = "beginner" | "intermediate" | "advanced";
 
 const TOPIC_CATALOG: TopicOption[] = [
   {
@@ -100,11 +108,10 @@ const TIMEZONES = [
   { value: "Asia/Tokyo", label: "Asia/Tokyo (JST - UTC+9)" },
 ];
 
-const CADENCE_OPTIONS = [
+const CADENCE_OPTIONS: { value: DeliveryCadence; label: string }[] = [
   { value: "daily", label: "Daily (Every Morning)" },
-  { value: "weekdays", label: "Weekdays Only (Monday – Friday)" },
-  { value: "realtime", label: "Real-time Priority Alerts" },
-  { value: "weekly", label: "Weekly Executive Roundup (Sundays)" },
+  { value: "weekly", label: "Weekly Executive Roundup" },
+  { value: "monthly", label: "Monthly Deep-Dive Briefing" },
 ];
 
 const AUDIO_SPEEDS = [
@@ -124,7 +131,7 @@ export default function PreferencesPage() {
   ]);
 
   // Delivery Cadence & Schedule
-  const [deliveryCadence, setDeliveryCadence] = React.useState("daily");
+  const [deliveryCadence, setDeliveryCadence] = React.useState<DeliveryCadence>("daily");
   const [dispatchTime, setDispatchTime] = React.useState("07:00");
   const [timezone, setTimezone] = React.useState("UTC");
 
@@ -136,26 +143,108 @@ export default function PreferencesPage() {
   // Notifications
   const [emailDigest, setEmailDigest] = React.useState(true);
   const [emailAlerts, setEmailAlerts] = React.useState(true);
-  const [telegramId, setTelegramId] = React.useState("@englead");
-  const [telegramTestStatus, setTelegramTestStatus] = React.useState<
-    "idle" | "testing" | "success"
-  >("idle");
+  const [telegramId, setTelegramId] = React.useState("");
+
+  // Skill level is owned by the account, not by this form: it is loaded from
+  // the API and written back unchanged. It used to be hard-coded to
+  // "intermediate", which silently overwrote the user's real value.
+  const [skillLevel, setSkillLevel] = React.useState<SkillLevel>("intermediate");
 
   // Save State
   const [isSaving, setIsSaving] = React.useState(false);
   const [saveStatus, setSaveStatus] = React.useState<"idle" | "success" | "error">("idle");
+  const [saveMessage, setSaveMessage] = React.useState("");
+
+  // Load State
+  const [isLoading, setIsLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState("");
+
+  // Load the persisted preferences (and the Telegram chat id) on mount.
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadPreferences() {
+      try {
+        const client = createApiClient();
+        const res = await client.user.preferences.$get();
+        if (!cancelled && !res.ok) {
+          setLoadError(`We could not load your preferences (HTTP ${res.status}).`);
+          setIsLoading(false);
+          return;
+        }
+        const data = res.ok ? await res.json() : null;
+        const preferences = data?.preferences;
+        if (cancelled) return;
+
+        if (preferences) {
+          if (Array.isArray(preferences.topics) && preferences.topics.length > 0) {
+            setSelectedTopics(preferences.topics as string[]);
+          }
+          if (typeof preferences.skillLevel === "string") {
+            setSkillLevel(preferences.skillLevel as SkillLevel);
+          }
+          if (typeof preferences.timezone === "string") {
+            setTimezone(preferences.timezone);
+          }
+          if (typeof preferences.deliveryHour === "number") {
+            setDispatchTime(`${String(preferences.deliveryHour).padStart(2, "0")}:00`);
+          }
+          if (typeof preferences.audioEnabled === "boolean") {
+            setAudioEnabled(preferences.audioEnabled);
+          }
+          if (typeof preferences.channelEnabled === "boolean") {
+            // `channelEnabled` is the persisted switch; the chat id itself is
+            // a profile field and is loaded separately below.
+          }
+          if (typeof preferences.deliveryCadence === "string") {
+            setDeliveryCadence(preferences.deliveryCadence as DeliveryCadence);
+          }
+          if (typeof preferences.voicePersona === "string") {
+            setVoicePersona(preferences.voicePersona);
+          }
+          if (typeof preferences.playbackSpeed === "number") {
+            setPlaybackSpeed(String(preferences.playbackSpeed));
+          }
+          if (typeof preferences.emailDigest === "boolean") {
+            setEmailDigest(preferences.emailDigest);
+          }
+          if (typeof preferences.emailAlerts === "boolean") {
+            setEmailAlerts(preferences.emailAlerts);
+          }
+        }
+
+        // The Telegram chat id lives on the user profile, not on the
+        // preference row.
+        const profileRes = await client.user.me.$get();
+        if (!cancelled && profileRes.ok) {
+          const profileData = await profileRes.json();
+          const chatId = profileData?.user?.telegramChatId;
+          if (typeof chatId === "string") {
+            setTelegramId(chatId);
+          }
+        }
+
+        if (!cancelled) {
+          setLoadError("");
+          setIsLoading(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setLoadError("We could not load your preferences. Please reload the page.");
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadPreferences();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const toggleTopic = (id: string, checked: boolean) => {
     setSaveStatus("idle");
     setSelectedTopics((prev) => (checked ? [...prev, id] : prev.filter((t) => t !== id)));
-  };
-
-  const handleTestTelegram = () => {
-    setTelegramTestStatus("testing");
-    setTimeout(() => {
-      setTelegramTestStatus("success");
-      setTimeout(() => setTelegramTestStatus("idle"), 3000);
-    }, 800);
   };
 
   const handleResetDefaults = () => {
@@ -168,31 +257,71 @@ export default function PreferencesPage() {
     setPlaybackSpeed("1.0");
     setEmailDigest(true);
     setEmailAlerts(true);
-    setTelegramId("@englead");
     setSaveStatus("idle");
+    setSaveMessage("");
   };
 
   const handleSave = async () => {
     setIsSaving(true);
     setSaveStatus("idle");
+    setSaveMessage("");
 
     try {
       const client = createApiClient();
       const parsedHour = Number.parseInt(dispatchTime.split(":")[0] || "7", 10);
-      await client.user.preferences.$put({
-        json: {
-          topics: selectedTopics,
-          deliveryHour: Number.isNaN(parsedHour) ? 7 : parsedHour,
-          timezone,
-          skillLevel: "intermediate",
-          audioEnabled,
-          channelEnabled: Boolean(telegramId),
-        },
+      const payload = {
+        topics: selectedTopics,
+        deliveryHour: Number.isNaN(parsedHour) ? 7 : parsedHour,
+        timezone,
+        skillLevel,
+        audioEnabled,
+        channelEnabled: Boolean(telegramId.trim()),
+        deliveryCadence,
+        voicePersona,
+        playbackSpeed: Number.parseFloat(playbackSpeed) || 1,
+        emailDigest,
+        emailAlerts,
+      };
+
+      const res = await client.user.preferences.$put({
+        json: payload,
       });
+
+      if (!res.ok) {
+        const errorData = (await res.json().catch(() => null)) as unknown as {
+          error?: string;
+        } | null;
+        setSaveStatus("error");
+        setSaveMessage(
+          errorData?.error ??
+            `Your preferences were not saved (HTTP ${res.status}). Please try again.`,
+        );
+        return;
+      }
+
+      // The Telegram chat id is a profile field, persisted separately.
+      if (telegramId.trim()) {
+        const profileRes = await client.user.profile.$patch({
+          json: { telegramChatId: telegramId.trim() },
+        });
+        if (!profileRes.ok) {
+          setSaveStatus("error");
+          setSaveMessage(
+            `Your preferences were saved, but the Telegram chat id could not be updated (HTTP ${profileRes.status}).`,
+          );
+          return;
+        }
+      }
+
       setSaveStatus("success");
+      setSaveMessage(
+        `Your delivery schedule, neural voice model, and ${selectedTopics.length} topic subscriptions have been updated.`,
+      );
     } catch {
-      // Optimistic persistence fallback
-      setSaveStatus("success");
+      setSaveStatus("error");
+      setSaveMessage(
+        "Your preferences were not saved — the server could not be reached. Please try again.",
+      );
     } finally {
       setIsSaving(false);
       setTimeout(() => {
@@ -214,14 +343,29 @@ export default function PreferencesPage() {
         </p>
       </div>
 
+      {/* Load failure banner */}
+      {loadError && (
+        <Alert variant="destructive" role="alert">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Preferences Unavailable</AlertTitle>
+          <AlertDescription className="text-xs mt-0.5">{loadError}</AlertDescription>
+        </Alert>
+      )}
+
       {/* Save Success Alert Banner */}
       {saveStatus === "success" && (
         <Alert variant="success" className="animate-in fade-in-50 duration-200">
           <AlertTitle className="font-semibold text-sm">Preferences Synchronized</AlertTitle>
-          <AlertDescription className="text-xs mt-0.5">
-            Your delivery schedule, neural voice model, and {selectedTopics.length} topic
-            subscriptions have been updated across all crawler nodes.
-          </AlertDescription>
+          <AlertDescription className="text-xs mt-0.5">{saveMessage}</AlertDescription>
+        </Alert>
+      )}
+
+      {/* Save Failure Alert Banner */}
+      {saveStatus === "error" && (
+        <Alert variant="destructive" role="alert" className="animate-in fade-in-50 duration-200">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle className="font-semibold text-sm">Preferences Not Saved</AlertTitle>
+          <AlertDescription className="text-xs mt-0.5">{saveMessage}</AlertDescription>
         </Alert>
       )}
 
@@ -300,7 +444,7 @@ export default function PreferencesPage() {
               <Select
                 id="delivery-cadence"
                 value={deliveryCadence}
-                onChange={(e) => setDeliveryCadence(e.target.value)}
+                onChange={(e) => setDeliveryCadence(e.target.value as DeliveryCadence)}
               >
                 {CADENCE_OPTIONS.map((opt) => (
                   <SelectOption key={opt.value} value={opt.value}>
@@ -449,35 +593,22 @@ export default function PreferencesPage() {
           {/* Telegram Channel */}
           <div className="space-y-1.5 pt-1">
             <Label htmlFor="telegram-id">Telegram Chat ID or Username</Label>
-            <div className="flex gap-2">
-              <Input
-                id="telegram-id"
-                placeholder="@englead"
-                value={telegramId}
-                onChange={(e) => setTelegramId(e.target.value)}
-                className="font-mono text-xs"
-              />
-              <Button
-                variant="outline"
-                type="button"
-                onClick={handleTestTelegram}
-                disabled={telegramTestStatus !== "idle"}
-                className="shrink-0 cursor-pointer text-xs"
-              >
-                {telegramTestStatus === "testing" ? (
-                  <span>Testing...</span>
-                ) : telegramTestStatus === "success" ? (
-                  <span className="text-accent flex items-center gap-1 font-semibold">
-                    <CheckCircle2 className="h-3.5 w-3.5" /> Connected
-                  </span>
-                ) : (
-                  <span>Test Connection</span>
-                )}
-              </Button>
-            </div>
+            <Input
+              id="telegram-id"
+              name="telegram-chat-id"
+              placeholder="@englead"
+              value={telegramId}
+              onChange={(e) => setTelegramId(e.target.value)}
+              className="font-mono text-xs"
+              autoComplete="off"
+            />
             <p className="text-[11px] text-muted-foreground">
               Connect our bot (@FirstCupBriefingBot) to receive morning audio and text summaries
               directly.
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              There is no API endpoint that can deliver a test message to a chat, so no &ldquo;test
+              connection&rdquo; control is offered. Saving stores the chat id on your profile.
             </p>
           </div>
         </CardContent>
@@ -501,6 +632,7 @@ export default function PreferencesPage() {
             variant="primary"
             type="button"
             isLoading={isSaving}
+            disabled={isLoading || Boolean(loadError)}
             onClick={handleSave}
             className="gap-2 font-semibold cursor-pointer shadow-sm"
           >

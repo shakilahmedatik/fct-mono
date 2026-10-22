@@ -1,7 +1,14 @@
+# Local development stack.
+#
+# Image versions are kept in step with docker-compose.prod.yml so a change
+# cannot work locally and fail in production (the previous version used
+# pgvector pg17 here and pg16 in production, valkey 7 here and 8 in
+# production, and rustfs here and minio in production).
+
 services:
   # ─── PostgreSQL ──────────────────────────────────────────────────────────────
   postgres:
-    image: pgvector/pgvector:pg17
+    image: pgvector/pgvector:pg16
     container_name: firstcup-postgres
     restart: unless-stopped
     environment:
@@ -9,7 +16,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: first_cup_tech
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -20,18 +27,18 @@ services:
 
   # ─── Valkey (Redis-compatible) ────────────────────────────────────────────────
   valkey:
-    image: valkey/valkey:7-alpine
+    image: valkey/valkey:8-alpine
     container_name: firstcup-valkey
     restart: unless-stopped
     command: valkey-server --save 60 1 --loglevel warning
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - valkey_data:/data
     healthcheck:
       test: ["CMD", "valkey-cli", "ping"]
       interval: 10s
-      timeout: 5s
+      timeout: 3s
       retries: 5
 
   # ─── RustFS (S3-compatible object storage) ────────────────────────────────────
@@ -43,8 +50,8 @@ services:
       RUSTFS_ROOT_USER: rustfsadmin
       RUSTFS_ROOT_PASSWORD: rustfspassword
     ports:
-      - "9000:9000"   # S3 API
-      - "9001:9001"   # Web console
+      - "127.0.0.1:9000:9000" # S3 API
+      - "127.0.0.1:9001:9001" # Web console
     volumes:
       - rustfs_data:/data
     healthcheck:
@@ -52,10 +59,11 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
+      start_period: 15s
 
   # ─── RustFS bucket initializer (runs once, then exits) ───────────────────────
   rustfs-init:
-    image: chainguard/minio:latest
+    image: rustfs/mc:latest
     container_name: firstcup-rustfs-init
     depends_on:
       rustfs:
@@ -65,7 +73,6 @@ services:
       /bin/sh -c "
         mc alias set local http://rustfs:9000 rustfsadmin rustfspassword &&
         mc mb --ignore-existing local/first-cup-tech-audio &&
-        mc anonymous set download local/first-cup-tech-audio &&
         echo 'Bucket first-cup-tech-audio is ready.'
       "
 

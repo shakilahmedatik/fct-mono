@@ -1,6 +1,9 @@
 "use client";
 
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
   Badge,
   Button,
   Card,
@@ -14,7 +17,7 @@ import {
   SelectOption,
   Textarea,
 } from "@repo/ui";
-import { Check, ClipboardCopy, Loader2, Sparkles, Zap } from "lucide-react";
+import { AlertCircle, Check, ClipboardCopy, Loader2, Sparkles, Zap } from "lucide-react";
 import * as React from "react";
 import { testAIConnection } from "../lib/api";
 
@@ -46,30 +49,52 @@ export function PromptWorkbench() {
   );
   const [isRunning, setIsRunning] = React.useState(false);
   const [response, setResponse] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
   const [latency, setLatency] = React.useState<number | null>(null);
   const [copied, setCopied] = React.useState(false);
 
   const handleRun = async () => {
     setIsRunning(true);
     setResponse(null);
+    setLatency(null);
+    setError(null);
     const start = performance.now();
     try {
+      /*
+       * The API has no freeform completion route: the playground's model
+       * round-trip is `POST /admin/playground/ai/test`, which performs a real
+       * provider call and returns the model's actual reply, the provider
+       * latency and the success flag.
+       *
+       * The response below is rendered verbatim — nothing is synthesised
+       * locally.
+       */
       const res = await testAIConnection(undefined, model);
       const elapsed = Math.round(performance.now() - start);
-      setLatency(elapsed);
-      if (res.success) {
-        setResponse(
-          `### First Cup Executive Digest (${model})\n\n**Key Takeaways:**\n- **Postgres 18:** Modernized async I/O bypasses OS page-cache bottlenecks for high-throughput transactional engines.\n- **Bun 1.3:** Direct kernel-ring buffer reads slash edge websocket latency.\n- **Gemini 2.5 Flash:** Ultra-low TTFT unlocks conversational latency budgets for multi-agent synthesis.\n\n*Synthesized with temperature ${temperature} in ${elapsed}ms.*`,
-        );
-      } else {
-        setResponse(
-          `### First Cup Executive Digest (${model} Simulation Mode)\n\n**Key Takeaways:**\n- **Postgres 18:** Modernized async I/O bypasses OS page-cache bottlenecks for high-throughput transactional engines.\n- **Bun 1.3:** Direct kernel-ring buffer reads slash edge websocket latency.\n- **Gemini 2.5 Flash:** Ultra-low TTFT unlocks conversational latency budgets for multi-agent synthesis.\n\n*Generated test output (${elapsed}ms latency).*`,
-        );
+      setLatency(res.latencyMs || elapsed);
+
+      if (!res.success) {
+        setError(res.message || "The model did not answer. The API reported a failure.");
+        setResponse(null);
+        return;
       }
-    } catch {
+
       setResponse(
-        `### First Cup Executive Digest (${model} Offline Mode)\n\n**Key Takeaways:**\n- **Postgres 18:** Modernized async I/O bypasses OS page-cache bottlenecks.\n- **Bun 1.3:** Zero-copy websocket transport stabilizes edge clusters.\n- **Gemini 2.5 Flash:** Sub-100ms response tokens.\n\n*Generated with local fallback.*`,
+        [
+          `Provider response (${model})`,
+          "",
+          res.message || "(The provider returned an empty message.)",
+          "",
+          `— reported latency: ${res.latencyMs}ms, round trip: ${elapsed}ms`,
+        ].join("\n"),
       );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? `The API could not be reached: ${err.message}`
+          : "The API could not be reached.",
+      );
+      setResponse(null);
     } finally {
       setIsRunning(false);
     }
@@ -188,7 +213,13 @@ export function PromptWorkbench() {
                 onChange={(e) => setSystemPrompt(e.target.value)}
                 placeholder="Enter system prompt constraints and persona instructions..."
                 className="text-xs font-mono leading-relaxed"
+                aria-describedby="system-prompt-note"
               />
+              <p id="system-prompt-note" className="text-[11px] text-muted-foreground">
+                The API exposes no freeform completion route, so these instructions are not sent to
+                the model. Use the AI Config panel to pick the provider and model, and the pipeline
+                steps to run a real generation.
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -205,7 +236,8 @@ export function PromptWorkbench() {
                   <span>Prompt Test Harness</span>
                 </CardTitle>
                 <CardDescription className="text-xs">
-                  Run trial inputs through the selected model and verify structured generation.
+                  Sends a real request to the configured provider through the API and renders the
+                  reply it returns.
                 </CardDescription>
               </div>
 
@@ -232,8 +264,21 @@ export function PromptWorkbench() {
                 onChange={(e) => setUserPrompt(e.target.value)}
                 placeholder="Type sample signals, article text, or queries..."
                 className="text-xs font-mono"
+                aria-describedby="user-prompt-note"
               />
+              <p id="user-prompt-note" className="text-[11px] text-muted-foreground">
+                Reference material for the operator. The API has no freeform prompt endpoint, so
+                this text is not transmitted.
+              </p>
             </div>
+
+            {error && (
+              <Alert variant="destructive" role="alert">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Model Request Failed</AlertTitle>
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
 
             {/* Response Section */}
             <div className="flex-1 flex flex-col space-y-2 pt-2 border-t border-border/40">

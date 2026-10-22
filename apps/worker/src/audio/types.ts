@@ -10,7 +10,12 @@ export interface AudioSynthesisResult {
 
 export interface AudioStorageResult {
   audioUrl: string;
-  storageTier: "s3" | "local" | "sample";
+  /**
+   * The tier the audio was stored in. `local` is a degraded result: the file
+   * only exists on the worker machine and the URL only works when
+   * `LOCAL_AUDIO_BASE_URL` points at a server that actually serves it.
+   */
+  storageTier: "s3" | "local";
   key: string;
 }
 

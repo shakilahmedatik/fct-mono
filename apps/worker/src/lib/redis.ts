@@ -8,5 +8,7 @@ export const redisConnection = new Redis(redisUrl, {
 });
 
 redisConnection.on("error", (err) => {
-  console.error("Redis worker connection error:", err.message);
+  // ioredis can emit an error whose `message` is empty (a closed connection),
+  // which would log as `err: ""` — useless exactly when it is needed.
+  console.error("Redis worker connection error:", err.message || String(err));
 });

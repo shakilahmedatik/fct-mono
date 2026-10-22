@@ -90,12 +90,42 @@ export function escapeEmailHtml(text: string): string {
     .replace(/'/g, "&#039;");
 }
 
+/**
+ * Every outbound Resend request is aborted after this many milliseconds. A
+ * hung request would otherwise hold the BullMQ job lock past `lockDuration`,
+ * BullMQ would declare the job stalled and run it again — a duplicate send.
+ */
+const RESEND_REQUEST_TIMEOUT_MS = 15_000;
+
+/**
+ * Mock deliveries are only used when they were explicitly requested.
+ *
+ * A missing API key used to be treated as "mock mode", which turned a typo in
+ * an environment variable into a delivery system that reported 100% success
+ * without sending anything.
+ */
+function isMockMode(): boolean {
+  return process.env.DELIVERY_MOCK === "true";
+}
+
+function assertEmailConfigured(): void {
+  if (isMockMode()) return;
+
+  const key = process.env.RESEND_API_KEY;
+  if (!key || key.includes("your-") || key.trim().length === 0) {
+    throw new Error(
+      "Resend API key is not configured (RESEND_API_KEY). Set DELIVERY_MOCK=true to send mock deliveries in development.",
+    );
+  }
+}
+
 export function renderEmailTemplate(
   title: string,
   greeting: string,
   items: DeliveryItemHighlight[],
   audioUrl?: string | null,
   durationSec?: number,
+  unsubscribeUrl?: string | null,
 ): { html: string; text: string } {
   const dateStr = new Intl.DateTimeFormat("en-US", {
     weekday: "long",
@@ -133,6 +163,7 @@ export function renderEmailTemplate(
     "Have a high-impact build day,",
     "The First Cup Tech Team",
     "https://firstcup.tech",
+    unsubscribeUrl ? `\nUnsubscribe: ${unsubscribeUrl}` : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -232,6 +263,13 @@ export function renderEmailTemplate(
           <a href="https://app.firstcup.tech/settings" style="color: #00a884; text-decoration: none; font-weight: 600;">Preferences</a> &bull;
           <a href="https://firstcup.tech" style="color: #00a884; text-decoration: none; font-weight: 600;">First Cup Tech</a>
         </p>
+        ${
+          unsubscribeUrl
+            ? `<p style="margin: 10px 0 0 0; font-size: 11px; color: #9ca3af;">
+                 <a href="${escapeEmailHtml(unsubscribeUrl)}" style="color: #9ca3af; text-decoration: underline;">Unsubscribe from these emails</a>
+               </p>`
+            : ""
+        }
       </div>
     </div>
   </div>
@@ -257,6 +295,8 @@ export class EmailDeliveryAdapter implements DeliveryChannelAdapter {
   async sendText(payload: TextBriefDeliveryPayload): Promise<DeliveryResult> {
     const recipientEmail = payload.recipientId;
 
+    assertEmailConfigured();
+
     if (!this.isConfigured) {
       workerLogger.info(
         { recipientEmail, title: payload.title },
@@ -279,13 +319,16 @@ export class EmailDeliveryAdapter implements DeliveryChannelAdapter {
 
       const { html, text } = renderEmailTemplate(subject, greeting, payload.items, null);
 
-      const { data, error } = await resend.emails.send({
-        from: this.sender,
-        to: recipientEmail,
-        subject,
-        text,
-        html,
-      });
+      const { data, error } = await resend.emails.send(
+        {
+          from: this.sender,
+          to: recipientEmail,
+          subject,
+          text,
+          html,
+        },
+        { signal: AbortSignal.timeout(RESEND_REQUEST_TIMEOUT_MS) },
+      );
 
       if (error) {
         const sanitizedMsg = sanitizeEmailLog(error.message || "Resend send failed");
@@ -331,6 +374,8 @@ export class EmailDeliveryAdapter implements DeliveryChannelAdapter {
   async sendAudio(payload: AudioBriefDeliveryPayload): Promise<DeliveryResult> {
     const recipientEmail = payload.recipientId;
 
+    assertEmailConfigured();
+
     if (!this.isConfigured) {
       workerLogger.info(
         { recipientEmail, audioUrl: payload.audioUrl },
@@ -357,15 +402,19 @@ export class EmailDeliveryAdapter implements DeliveryChannelAdapter {
         payload.items,
         payload.audioUrl,
         payload.durationSec,
+        payload.unsubscribeUrl,
       );
 
-      const { data, error } = await resend.emails.send({
-        from: this.sender,
-        to: recipientEmail,
-        subject,
-        text,
-        html,
-      });
+      const { data, error } = await resend.emails.send(
+        {
+          from: this.sender,
+          to: recipientEmail,
+          subject,
+          text,
+          html,
+        },
+        { signal: AbortSignal.timeout(RESEND_REQUEST_TIMEOUT_MS) },
+      );
 
       if (error) {
         const sanitizedMsg = sanitizeEmailLog(error.message || "Resend send failed");

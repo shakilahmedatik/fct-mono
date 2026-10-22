@@ -212,11 +212,14 @@ describe("Challenger 2 (M3): Empirical Shell Navigation, Mobile Drawer & Footer 
       // 3. Renders segmented ThemeToggle in mobile drawer
       expect(siteHeaderSrc.includes('<ThemeToggle variant="segmented" />')).toBeTrue();
 
-      // 4. Renders Console button (http://localhost:3001) in mobile drawer
-      expect(siteHeaderSrc.includes('href="http://localhost:3001"')).toBeTrue();
+      // 4. Renders the Console button in the mobile drawer. The URL is built by
+      // the shared, environment-driven `appUrl()` helper (apps/web/src/lib/config.ts)
+      // instead of a hard-coded origin.
+      expect(siteHeaderSrc.includes("appUrl")).toBeTrue();
+      expect(siteHeaderSrc.includes('href={appUrl("/")}')).toBeTrue();
 
-      // 5. Renders Sign In button (http://localhost:3001/login) in mobile drawer
-      expect(siteHeaderSrc.includes('href="http://localhost:3001/login"')).toBeTrue();
+      // 5. Renders the Sign In button in the mobile drawer
+      expect(siteHeaderSrc.includes('href={appUrl("/login")}')).toBeTrue();
     });
 
     test("2.3 Mobile drawer does NOT contain duplicate NavbarBrand elements", () => {
@@ -373,11 +376,24 @@ describe("Challenger 2 (M3): Empirical Shell Navigation, Mobile Drawer & Footer 
         path.join(APPS_PATH, "web/src/components/site-footer.tsx"),
         "utf8",
       );
+      const configSrc = fs.readFileSync(path.join(APPS_PATH, "web/src/lib/config.ts"), "utf8");
+
+      // The cross-app origins are environment driven and live in one place
+      // (apps/web/src/lib/config.ts), so no component hard-codes an origin.
+      expect(headerSrc.includes('from "../lib/config"')).toBeTrue();
+      expect(footerSrc.includes('from "../lib/config"')).toBeTrue();
 
       // Console base port 3001
-      expect(headerSrc.includes("http://localhost:3001")).toBeTrue();
-      expect(headerSrc.includes("http://localhost:3001/login")).toBeTrue();
-      expect(footerSrc.includes("http://localhost:3001")).toBeTrue();
+      expect(configSrc.includes("NEXT_PUBLIC_APP_URL")).toBeTrue();
+      expect(configSrc).toContain(":3001");
+
+      // Admin base port 3002
+      expect(configSrc.includes("NEXT_PUBLIC_ADMIN_URL")).toBeTrue();
+      expect(configSrc).toContain(":3002");
+
+      // The components resolve their links through those helpers.
+      expect(headerSrc.includes("appUrl")).toBeTrue();
+      expect(footerSrc.includes("appUrl")).toBeTrue();
     });
 
     test("4.3 Component barrel exports clean aliases for modular consumption", () => {

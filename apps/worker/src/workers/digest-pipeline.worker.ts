@@ -1,9 +1,28 @@
 import { type AIProviderConfig, aiConfigStorage } from "@repo/pipeline";
 import { type Job, Worker } from "bullmq";
+import { recordPipelineRun } from "../lib/health";
 import { workerLogger } from "../lib/logger";
 import { QUEUES } from "../lib/queues";
 import { redisConnection } from "../lib/redis";
 import { runAutonomousPipeline } from "../pipeline/orchestrator";
+
+/**
+ * The job payload may contain an `AIProviderConfig` with an API key. Only an
+ * allow-listed projection is ever logged — never the raw payload.
+ */
+function toLoggableJobData(data: {
+  userId?: string;
+  type?: "cron" | "admin" | "manual";
+  force?: boolean;
+  aiConfig?: AIProviderConfig;
+}): Record<string, unknown> {
+  return {
+    userId: data.userId ?? null,
+    type: data.type ?? null,
+    force: data.force ?? false,
+    hasAiConfig: Boolean(data.aiConfig),
+  };
+}
 
 export function createDigestPipelineWorker() {
   const worker = new Worker(
@@ -17,13 +36,14 @@ export function createDigestPipelineWorker() {
       }>,
     ) => {
       workerLogger.info(
-        { jobId: job.id, data: job.data },
+        { jobId: job.id, ...toLoggableJobData(job.data) },
         "Starting autonomous pipeline execution job...",
       );
 
       const run = () =>
         runAutonomousPipeline({
-          triggerSource: job.data.type || "cron",
+          triggerSource:
+            job.data.type === "admin" || job.data.type === "manual" ? job.data.type : "cron",
           userId: job.data.userId,
         });
 
@@ -34,6 +54,9 @@ export function createDigestPipelineWorker() {
       if (!report.success) {
         throw new Error(`Pipeline execution failed: ${report.errors.join("; ")}`);
       }
+
+      // The readiness probe reports how long ago the last pipeline run was.
+      await recordPipelineRun();
 
       return report;
     },

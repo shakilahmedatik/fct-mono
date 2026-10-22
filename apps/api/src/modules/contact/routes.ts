@@ -18,8 +18,14 @@ export const contactRouter = new Hono().post(
         subject: data.subject,
         message: data.message,
       })
-      .returning();
+      .returning({ id: schema.contactMessages.id });
 
-    return c.json({ success: true, message });
+    // The whole stored row was echoed back to the caller. Only the id is
+    // useful, and returning the message body is needless data exposure.
+    return c.json({
+      success: true,
+      message: "Thanks for getting in touch. We will reply shortly.",
+      id: message?.id,
+    });
   },
 );

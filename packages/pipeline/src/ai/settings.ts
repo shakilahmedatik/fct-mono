@@ -5,6 +5,7 @@
 
 import OpenAI from "openai";
 import type { AIProviderConfig } from "./index";
+import { assertSafeHttpUrlAsync } from "./url-guard";
 
 export type AIProviderId = "local" | "openrouter" | "openai" | "anthropic" | "gemini";
 
@@ -22,17 +23,29 @@ export interface AIProviderStatus {
   isActive: boolean;
   activeModel: string;
   baseURL: string;
-  maskedKey?: string;
   missingRequirements?: string[];
 }
 
-const isSet = (v?: string | null) => Boolean(v && !v.includes("your-") && v.trim().length > 0);
+const isSet = (v?: string | null): boolean =>
+  Boolean(v && !v.includes("your-") && v.trim().length > 0);
 
-function maskKey(key?: string | null): string | undefined {
-  if (!key || key.length < 6) return undefined;
-  return `${key.slice(0, 4)}...${key.slice(-4)}`;
-}
-
+/**
+ * PROCESS-LOCAL SETTINGS.
+ *
+ * The settings below live in a module level variable of the process that
+ * called `saveAISettings`. They are:
+ *
+ *   * lost when the process restarts;
+ *   * NOT visible to any other process (the worker never sees a setting saved
+ *     by the API, and vice versa);
+ *   * never written to the database — the database schema is owned by another
+ *     team and no persistence is performed here.
+ *
+ * The read path deliberately falls through to the environment defaults on
+ * every call, so a process that never saved anything still sees the
+ * environment configuration, and a process that saved something sees its own
+ * overrides on top of it.
+ */
 let memorySettingsCache: AISettings | null = null;
 
 export function getDefaultAISettings(): AISettings {
@@ -56,23 +69,54 @@ export function getDefaultAISettings(): AISettings {
   };
 }
 
-export async function getAISettings(): Promise<AISettings> {
+/**
+ * Returns the effective settings for this process.
+ *
+ * Process local: see the note on `memorySettingsCache`. Synchronous because it
+ * performs no I/O.
+ */
+export function getAISettings(): AISettings {
   if (memorySettingsCache) {
     return memorySettingsCache;
   }
-  const defaults = getDefaultAISettings();
-  memorySettingsCache = defaults;
-  return defaults;
+  return getDefaultAISettings();
 }
 
-export async function saveAISettings(updates: Partial<AISettings>): Promise<AISettings> {
-  const current = await getAISettings();
+/**
+ * Stores settings for this process only.
+ *
+ * Process local: see the note on `memorySettingsCache`. Synchronous because it
+ * performs no I/O.
+ */
+export function saveAISettings(updates: Partial<AISettings>): AISettings {
+  const current = getAISettings();
   const next: AISettings = {
     ...current,
     ...updates,
   };
   memorySettingsCache = next;
   return next;
+}
+
+/**
+ * Resolve the API key for a provider from the server environment.
+ * Never taken from request input.
+ */
+function resolveApiKey(providerId: AIProviderId): string {
+  switch (providerId) {
+    case "local":
+      return process.env.LLM_API_KEY || "local";
+    case "openrouter":
+      return process.env.OPENROUTER_API_KEY || "";
+    case "openai":
+      return process.env.OPENAI_API_KEY || "";
+    case "gemini":
+      return process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY || "";
+    case "anthropic":
+      return process.env.ANTHROPIC_API_KEY || "";
+    default:
+      return "";
+  }
 }
 
 export function getAIProviderStatuses(settings: AISettings): AIProviderStatus[] {
@@ -113,7 +157,6 @@ export function getAIProviderStatuses(settings: AISettings): AIProviderStatus[] 
           ? settings.model
           : process.env.LLM_MODEL || "fct",
       baseURL: process.env.LLM_BASE_URL || "http://localhost:20128/v1",
-      maskedKey: maskKey(process.env.LLM_API_KEY),
       missingRequirements: localMissing,
     },
     {
@@ -129,7 +172,6 @@ export function getAIProviderStatuses(settings: AISettings): AIProviderStatus[] 
           ? settings.model
           : process.env.OPENROUTER_MODEL || "google/gemini-2.5-flash",
       baseURL: "https://openrouter.ai/api/v1",
-      maskedKey: maskKey(process.env.OPENROUTER_API_KEY),
       missingRequirements: openRouterMissing,
     },
     {
@@ -144,7 +186,6 @@ export function getAIProviderStatuses(settings: AISettings): AIProviderStatus[] 
           ? settings.model
           : process.env.OPENAI_MODEL || "gpt-4o-mini",
       baseURL: "https://api.openai.com/v1",
-      maskedKey: maskKey(process.env.OPENAI_API_KEY),
       missingRequirements: openAiMissing,
     },
     {
@@ -160,7 +201,6 @@ export function getAIProviderStatuses(settings: AISettings): AIProviderStatus[] 
           ? settings.model
           : process.env.GEMINI_MODEL || "gemini-2.5-flash",
       baseURL: "https://generativelanguage.googleapis.com",
-      maskedKey: maskKey(process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY),
       missingRequirements: geminiMissing,
     },
     {
@@ -175,68 +215,79 @@ export function getAIProviderStatuses(settings: AISettings): AIProviderStatus[] 
           ? settings.model
           : process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-20241022",
       baseURL: "https://api.anthropic.com/v1",
-      maskedKey: maskKey(process.env.ANTHROPIC_API_KEY),
       missingRequirements: anthropicMissing,
     },
   ];
 }
 
-export async function getActiveAIConfig(): Promise<AIProviderConfig> {
-  const settings = await getAISettings();
+/**
+ * Resolve a complete, ready to use OpenAI-compatible client configuration for a
+ * provider.
+ *
+ * Every field is resolved from the *server* configuration (environment
+ * variables and the process local settings). Nothing is taken from request
+ * input: a caller may only name a provider, never a URL or a key.
+ *
+ * The resolved base URL is passed through the SSRF guard, so a misconfigured or
+ * tampered environment cannot point the server at an internal address.
+ */
+export async function getAIConfigForProvider(providerId: AIProviderId): Promise<AIProviderConfig> {
+  const settings = getAISettings();
   const statuses = getAIProviderStatuses(settings);
+  const status = statuses.find((s) => s.id === providerId);
+
+  if (!status) {
+    throw new Error(`Unknown AI provider: "${providerId}".`);
+  }
+
+  if (!status.isConfigured) {
+    throw new Error(
+      `AI provider "${providerId}" is not configured (missing: ${status.missingRequirements?.join(", ") || "environment variables"}).`,
+    );
+  }
+
+  const config: AIProviderConfig = {
+    id: status.id,
+    name: status.name,
+    baseURL: status.baseURL,
+    apiKey: resolveApiKey(status.id),
+    model: status.activeModel,
+  };
+
+  await assertSafeHttpUrlAsync(config.baseURL, {
+    allowlistEnvVar: "LLM_ALLOWED_BASE_URLS",
+    context: `AI provider "${providerId}"`,
+    // A locally hosted model is a legitimate deployment; the value is trusted
+    // because it comes from the server environment, not from a request.
+    configuredUrlEnvVar: "LLM_BASE_URL",
+  });
+
+  return config;
+}
+
+/**
+ * The configuration of the currently active provider (or of the first
+ * configured provider when the active one is not configured).
+ */
+export async function getActiveAIConfig(): Promise<AIProviderConfig> {
+  const settings = getAISettings();
+  const statuses = getAIProviderStatuses(settings);
+
   const activeStatus = statuses.find((s) => s.id === settings.activeProvider);
+  const fallback = statuses.find((s) => s.isConfigured);
+  const target = activeStatus?.isConfigured ? activeStatus : fallback;
 
-  // If the active provider is configured, return it
-  if (activeStatus?.isConfigured) {
-    let apiKey = "";
-    if (activeStatus.id === "local") {
-      apiKey = process.env.LLM_API_KEY || "local";
-    } else if (activeStatus.id === "openrouter") {
-      apiKey = process.env.OPENROUTER_API_KEY || "";
-    } else if (activeStatus.id === "openai") {
-      apiKey = process.env.OPENAI_API_KEY || "";
-    } else if (activeStatus.id === "gemini") {
-      apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY || "";
-    } else if (activeStatus.id === "anthropic") {
-      apiKey = process.env.ANTHROPIC_API_KEY || "";
-    }
-
-    return {
-      id: activeStatus.id,
-      name: activeStatus.name,
-      baseURL: activeStatus.baseURL,
-      apiKey,
-      model: activeStatus.activeModel,
-    };
+  if (target) {
+    return getAIConfigForProvider(target.id);
   }
 
-  // Fallback cascade: local -> openrouter -> openai
-  const configuredFallback = statuses.find((s) => s.isConfigured);
-  if (configuredFallback) {
-    let apiKey = "";
-    if (configuredFallback.id === "local") {
-      apiKey = process.env.LLM_API_KEY || "local";
-    } else if (configuredFallback.id === "openrouter") {
-      apiKey = process.env.OPENROUTER_API_KEY || "";
-    } else if (configuredFallback.id === "openai") {
-      apiKey = process.env.OPENAI_API_KEY || "";
-    }
-
-    return {
-      id: configuredFallback.id,
-      name: configuredFallback.name,
-      baseURL: configuredFallback.baseURL,
-      apiKey,
-      model: configuredFallback.activeModel,
-    };
-  }
-
-  // Default empty fallback
+  // Nothing is configured: return an inert configuration so that callers fail
+  // with a clear "no API key" error instead of an opaque network failure.
   return {
     id: "openrouter",
     name: "OpenRouter",
     baseURL: "https://openrouter.ai/api/v1",
-    apiKey: process.env.OPENROUTER_API_KEY || "",
+    apiKey: "",
     model: "meta-llama/llama-3-8b-instruct:free",
   };
 }
@@ -261,6 +312,15 @@ export async function testAIConnection(
   try {
     let client: OpenAI;
     const model = modelOverride || status.activeModel;
+
+    // The same SSRF guard that protects the production client is applied here:
+    // a provider configuration must never be able to aim the server's
+    // outbound requests at an internal address.
+    await assertSafeHttpUrlAsync(status.baseURL, {
+      allowlistEnvVar: "LLM_ALLOWED_BASE_URLS",
+      context: `AI provider "${providerId}"`,
+      configuredUrlEnvVar: "LLM_BASE_URL",
+    });
 
     if (providerId === "local") {
       client = new OpenAI({

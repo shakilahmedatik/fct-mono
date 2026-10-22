@@ -4,6 +4,8 @@ import { Button, Input, useTheme } from "@repo/ui";
 import { ArrowRight, CheckCircle2, Coffee, Sparkles } from "lucide-react";
 import Link from "next/link";
 import * as React from "react";
+import { appUrl } from "../lib/config";
+import { subscribeToNewsletter } from "../lib/newsletter";
 
 function GithubIcon({ className = "h-4 w-4" }: { className?: string }) {
   return (
@@ -55,12 +57,21 @@ function SystemThemeIndicator() {
 export function SiteFooter() {
   const [email, setEmail] = React.useState("");
   const [subscribed, setSubscribed] = React.useState(false);
+  const [status, setStatus] = React.useState<"idle" | "submitting" | "error">("idle");
+  const [errorMessage, setErrorMessage] = React.useState("");
 
-  const handleSubscribe = (e: React.FormEvent) => {
+  const handleSubscribe = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (email.trim()) {
+    setErrorMessage("");
+    setStatus("submitting");
+    const result = await subscribeToNewsletter(email);
+    if (result.ok) {
       setSubscribed(true);
+      setStatus("idle");
+      return;
     }
+    setStatus("error");
+    setErrorMessage(result.message);
   };
 
   return (
@@ -97,23 +108,34 @@ export function SiteFooter() {
                   >
                     <Input
                       type="email"
+                      name="email"
                       placeholder="name@company.com"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       required
+                      autoComplete="email"
                       aria-label="Work email address"
+                      aria-invalid={status === "error" ? "true" : undefined}
+                      aria-describedby={status === "error" ? "newsletter-error" : undefined}
+                      error={status === "error" ? errorMessage : undefined}
                       className="h-10 bg-background"
                     />
                     <Button
                       type="submit"
                       variant="primary"
                       size="md"
+                      isLoading={status === "submitting"}
                       className="shrink-0 gap-1.5 font-medium"
                     >
                       <span>Subscribe</span>
                       <ArrowRight className="h-4 w-4" />
                     </Button>
                   </form>
+                )}
+                {status === "error" && errorMessage && (
+                  <p id="newsletter-error" role="alert" className="mt-2 text-xs text-destructive">
+                    {errorMessage}
+                  </p>
                 )}
                 <p className="mt-2 text-xs text-muted-foreground/80">
                   Zero spam. Unsubscribe in one click anytime.
@@ -211,7 +233,7 @@ export function SiteFooter() {
                 </Link>
               </li>
               <li>
-                <a href="http://localhost:3001" className="hover:text-foreground transition-colors">
+                <a href={appUrl("/")} className="hover:text-foreground transition-colors">
                   Documentation
                 </a>
               </li>

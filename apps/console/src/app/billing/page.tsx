@@ -1,6 +1,10 @@
 "use client";
 
+import { createApiClient } from "@repo/api-client";
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
   Badge,
   Button,
   buttonVariants,
@@ -26,65 +30,47 @@ import {
   TableRow,
 } from "@repo/ui";
 import {
-  Archive,
+  AlertCircle,
   ArrowUpRight,
-  Bell,
   Check,
   CreditCard,
-  Download,
   ExternalLink,
-  Flame,
-  Headphones,
-  Newspaper,
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
 import * as React from "react";
 
-const INVOICE_HISTORY = [
-  {
-    id: "INV-2026-004",
-    date: "Oct 14, 2026",
-    description: "Executive Pro Plan — Monthly Subscription",
-    amount: "$29.00",
-    status: "Paid",
-    statusVariant: "success" as const,
-  },
-  {
-    id: "INV-2026-003",
-    date: "Sep 14, 2026",
-    description: "Executive Pro Plan — Monthly Subscription",
-    amount: "$29.00",
-    status: "Paid",
-    statusVariant: "success" as const,
-  },
-  {
-    id: "INV-2026-002",
-    date: "Aug 14, 2026",
-    description: "Executive Pro Plan — Monthly Subscription",
-    amount: "$29.00",
-    status: "Paid",
-    statusVariant: "success" as const,
-  },
-  {
-    id: "INV-2026-001",
-    date: "Jul 14, 2026",
-    description: "14-Day Executive Pro Trial (Verification)",
-    amount: "$0.00",
-    status: "Settled",
-    statusVariant: "secondary" as const,
-  },
-];
+/**
+ * The subscription payload returned by `GET /billing/subscription`.
+ *
+ * The API reports the plan, the subscription status and the Paddle
+ * identifiers. It does **not** report a price, a payment method, quota usage
+ * or invoices — so none of those are rendered as if they were known.
+ */
+interface Subscription {
+  plan?: string | null;
+  subscriptionStatus?: string | null;
+  paddleCustomerId?: string | null;
+  paddleSubscriptionId?: string | null;
+  trialEndsAt?: string | null;
+}
 
+/**
+ * The plan catalogue.
+ *
+ * `isCurrent` is not hard-coded — it is derived from the plan the API reports,
+ * so the console never claims a tier the account does not have.
+ */
 const UPGRADE_TIERS = [
   {
     id: "pro",
+    plan: "PRO",
     name: "Executive Pro",
     price: "$29",
     cadence: "per month",
     description:
       "Essential intelligence briefing for senior individual contributors and team leads.",
-    isCurrent: true,
+    popular: false,
     features: [
       "Daily 3-minute executive voice brief",
       "7 custom tracked tech topics",
@@ -94,6 +80,7 @@ const UPGRADE_TIERS = [
   },
   {
     id: "team",
+    plan: "TEAM",
     name: "Team Intelligence",
     price: "$79",
     cadence: "per month",
@@ -110,6 +97,7 @@ const UPGRADE_TIERS = [
   },
   {
     id: "enterprise",
+    plan: "ENTERPRISE",
     name: "Enterprise Command",
     price: "$249",
     cadence: "per month",
@@ -125,16 +113,59 @@ const UPGRADE_TIERS = [
   },
 ];
 
+function formatDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+}
+
 export default function BillingPage() {
   const [selectedTier, setSelectedTier] = React.useState<string>("team");
-  const [downloadingId, setDownloadingId] = React.useState<string | null>(null);
 
-  const handleDownloadInvoice = (id: string) => {
-    setDownloadingId(id);
-    setTimeout(() => {
-      setDownloadingId(null);
-    }, 1200);
-  };
+  const [subscription, setSubscription] = React.useState<Subscription | null>(null);
+  const [isLoadingSubscription, setIsLoadingSubscription] = React.useState(true);
+  const [subscriptionError, setSubscriptionError] = React.useState<string | null>(null);
+
+  // Load the real subscription. The page used to render a hard-coded plan
+  // summary — a fixed tier, price, trial state, card brand and last-four, plus
+  // four invented invoice rows — so a free account saw a paid plan and an
+  // invoice history that did not exist.
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadSubscription() {
+      try {
+        const client = createApiClient();
+        const res = await client.billing.subscription.$get();
+
+        if (!res.ok) {
+          if (!cancelled) {
+            setSubscriptionError(`We could not load your subscription (HTTP ${res.status}).`);
+            setIsLoadingSubscription(false);
+          }
+          return;
+        }
+
+        const data = await res.json();
+        if (cancelled) return;
+        setSubscription(data as Subscription);
+      } catch (error) {
+        if (cancelled) return;
+        setSubscriptionError(
+          error instanceof Error ? error.message : "We could not reach the billing service.",
+        );
+      } finally {
+        if (!cancelled) setIsLoadingSubscription(false);
+      }
+    }
+
+    void loadSubscription();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const currentPlan = subscription?.plan?.toUpperCase() ?? null;
 
   return (
     <div className="space-y-8 max-w-4xl pb-12">
@@ -144,31 +175,55 @@ export default function BillingPage() {
           Subscription & Billing
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Manage your subscription tier, monitor monthly compute quotas, and view Paddle invoice
-          receipts.
+          Manage your subscription tier and review the billing details your account reports.
         </p>
       </div>
+
+      {subscriptionError && (
+        <Alert variant="destructive" role="alert">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Subscription unavailable</AlertTitle>
+          <AlertDescription>{subscriptionError}</AlertDescription>
+        </Alert>
+      )}
 
       {/* 1. Active Plan Overview Card */}
       <Card className="border-accent/30 bg-card/90 shadow-md">
         <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2.5 flex-wrap">
-              <CardTitle className="text-xl font-bold">Executive Pro Plan</CardTitle>
-              <Badge variant="success">Active Trial</Badge>
+              <CardTitle className="text-xl font-bold">
+                {isLoadingSubscription
+                  ? "Loading plan…"
+                  : currentPlan
+                    ? `${currentPlan} Plan`
+                    : "Plan not reported"}
+              </CardTitle>
+              <Badge variant={subscription?.subscriptionStatus ? "success" : "secondary"}>
+                {subscription?.subscriptionStatus || "Status not reported"}
+              </Badge>
               <Badge variant="outline" className="font-mono text-xs">
                 Paddle Managed
               </Badge>
             </div>
             <CardDescription className="text-xs">
-              Automatic monthly renewal on{" "}
-              <strong className="text-foreground">November 14, 2026</strong>.
+              {subscription?.trialEndsAt ? (
+                <>
+                  Trial ends on{" "}
+                  <strong className="text-foreground">
+                    {formatDate(subscription.trialEndsAt)}
+                  </strong>
+                  .
+                </>
+              ) : (
+                "The renewal date is not reported by the API."
+              )}
             </CardDescription>
           </div>
 
           <div className="text-right sm:text-right">
-            <div className="text-2xl font-extrabold text-foreground tracking-tight">$29.00</div>
-            <div className="text-xs text-muted-foreground">per month • billed monthly</div>
+            <div className="text-2xl font-extrabold text-foreground tracking-tight">—</div>
+            <div className="text-xs text-muted-foreground">price not reported by the API</div>
           </div>
         </CardHeader>
 
@@ -181,7 +236,9 @@ export default function BillingPage() {
               <div>
                 <div className="font-semibold text-foreground">Payment Method</div>
                 <div className="text-muted-foreground">
-                  Mastercard ending in •••• 4242 (Exp 12/28)
+                  {subscription?.paddleCustomerId
+                    ? `Paddle customer ${subscription.paddleCustomerId}`
+                    : "Not reported by the API"}
                 </div>
               </div>
             </div>
@@ -237,6 +294,8 @@ export default function BillingPage() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 py-4">
                   {UPGRADE_TIERS.map((tier) => {
                     const isSelected = selectedTier === tier.id;
+                    // The account's own plan decides which tier is current.
+                    const isCurrent = currentPlan === tier.plan;
                     return (
                       <div
                         key={tier.id}
@@ -257,7 +316,7 @@ export default function BillingPage() {
                         <div>
                           <div className="flex items-center justify-between">
                             <h4 className="font-bold text-sm text-foreground">{tier.name}</h4>
-                            {tier.isCurrent && (
+                            {isCurrent && (
                               <Badge variant="secondary" className="text-[10px]">
                                 Current
                               </Badge>
@@ -286,7 +345,7 @@ export default function BillingPage() {
                         </div>
 
                         <div className="mt-6 pt-3 border-t border-border/40">
-                          {tier.isCurrent ? (
+                          {isCurrent ? (
                             <Button variant="outline" size="sm" disabled className="w-full text-xs">
                               Current Plan
                             </Button>
@@ -331,82 +390,20 @@ export default function BillingPage() {
         </CardFooter>
       </Card>
 
-      {/* 2. Monthly Resource Quota Meters Card */}
+      {/* 2. Quota card — the API reports no usage metrics */}
       <Card className="border-border/80 bg-card shadow-xs">
         <CardHeader className="pb-4">
-          <div className="flex items-center gap-2">
-            <Flame className="h-4 w-4 text-accent" />
-            <CardTitle className="text-base font-bold">Monthly Quota & Consumption</CardTitle>
-          </div>
+          <CardTitle className="text-base font-bold">Monthly Quota & Consumption</CardTitle>
           <CardDescription className="text-xs mt-1">
-            Resource usage for current billing period (Oct 14, 2026 – Nov 14, 2026).
+            The API does not report quota usage for this account.
           </CardDescription>
         </CardHeader>
-
-        <CardContent className="space-y-5 pt-2">
-          {/* Quota Meter 1: Daily Briefings */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2">
-                <Newspaper className="h-3.5 w-3.5 text-accent" />
-                <span className="font-semibold text-foreground">Daily Briefings</span>
-              </div>
-              <span className="font-mono text-muted-foreground">
-                <strong className="text-foreground">26</strong> / 30 briefs (86.7%)
-              </span>
-            </div>
-            <div className="h-2 w-full bg-muted/60 rounded-full overflow-hidden">
-              <div className="h-full bg-accent rounded-full transition-all duration-300 w-[86.7%]" />
-            </div>
-          </div>
-
-          {/* Quota Meter 2: Voice Audio Minutes */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2">
-                <Headphones className="h-3.5 w-3.5 text-accent" />
-                <span className="font-semibold text-foreground">Voice Audio Minutes</span>
-              </div>
-              <span className="font-mono text-muted-foreground">
-                <strong className="text-foreground">78</strong> / 100 mins (78.0%)
-              </span>
-            </div>
-            <div className="h-2 w-full bg-muted/60 rounded-full overflow-hidden">
-              <div className="h-full bg-accent rounded-full transition-all duration-300 w-[78.0%]" />
-            </div>
-          </div>
-
-          {/* Quota Meter 3: Instant Alerts & Webhooks */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2">
-                <Bell className="h-3.5 w-3.5 text-accent" />
-                <span className="font-semibold text-foreground">Instant Alerts & Webhooks</span>
-              </div>
-              <span className="font-mono text-muted-foreground">
-                <strong className="text-foreground">1,420</strong> / 5,000 dispatched (28.4%)
-              </span>
-            </div>
-            <div className="h-2 w-full bg-muted/60 rounded-full overflow-hidden">
-              <div className="h-full bg-accent rounded-full transition-all duration-300 w-[28.4%]" />
-            </div>
-          </div>
-
-          {/* Quota Meter 4: Archived Briefings */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2">
-                <Archive className="h-3.5 w-3.5 text-accent" />
-                <span className="font-semibold text-foreground">Archived Briefings</span>
-              </div>
-              <span className="font-mono text-muted-foreground">
-                <strong className="text-foreground">45</strong> / 500 saved (9.0%)
-              </span>
-            </div>
-            <div className="h-2 w-full bg-muted/60 rounded-full overflow-hidden">
-              <div className="h-full bg-accent rounded-full transition-all duration-300 w-[9.0%]" />
-            </div>
-          </div>
+        <CardContent className="pt-2">
+          <p className="text-xs text-muted-foreground">
+            Briefings, audio minutes, alerts and archived items are not metered by the API yet, so
+            no usage is shown here. Showing invented counters would misrepresent what has been
+            consumed.
+          </p>
         </CardContent>
       </Card>
 
@@ -418,7 +415,7 @@ export default function BillingPage() {
             <CardTitle className="text-base font-bold">Billing & Invoice History</CardTitle>
           </div>
           <CardDescription className="text-xs mt-1">
-            Download past official invoices and tax receipts processed through Paddle.
+            The API does not report invoices for this account.
           </CardDescription>
         </CardHeader>
 
@@ -435,37 +432,12 @@ export default function BillingPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {INVOICE_HISTORY.map((invoice) => (
-                <TableRow key={invoice.id}>
-                  <TableCell className="font-mono text-xs font-semibold text-foreground">
-                    {invoice.id}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{invoice.date}</TableCell>
-                  <TableCell className="text-xs text-foreground/90">
-                    {invoice.description}
-                  </TableCell>
-                  <TableCell className="font-mono text-xs font-semibold text-foreground">
-                    {invoice.amount}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={invoice.statusVariant} className="text-[10px]">
-                      {invoice.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDownloadInvoice(invoice.id)}
-                      disabled={downloadingId === invoice.id}
-                      className="h-8 gap-1 text-xs text-muted-foreground hover:text-foreground cursor-pointer"
-                    >
-                      <Download className="h-3.5 w-3.5" />
-                      <span>{downloadingId === invoice.id ? "Saving..." : "PDF"}</span>
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
+              <TableRow>
+                <TableCell colSpan={6} className="text-xs text-muted-foreground py-6 text-center">
+                  No invoices are reported by the API. Invoices are issued and receipted by Paddle
+                  and are available in the Paddle customer portal.
+                </TableCell>
+              </TableRow>
             </TableBody>
           </Table>
         </CardContent>

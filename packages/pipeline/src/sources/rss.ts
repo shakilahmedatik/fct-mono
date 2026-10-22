@@ -1,3 +1,4 @@
+import { assertSafeHttpUrlAsync } from "../ai/url-guard";
 import type { RawSignal } from "../types";
 
 function decodeXmlEntities(str: string): string {
@@ -95,20 +96,27 @@ export async function fetchRssFeedSignals(
   limit = 10,
   source: RawSignal["source"] = "rss",
 ): Promise<RawSignal[]> {
-  try {
-    const res = await fetch(feedUrl, {
-      headers: {
-        "User-Agent": "FirstCupTechWorker/1.0",
-        Accept: "application/rss+xml, application/atom+xml, text/xml, */*",
-      },
-      signal: AbortSignal.timeout(5000),
-    });
+  // The feed URL is dereferenced by the server, so it is validated first:
+  // only http(s) URLs that do not point at a loopback, private, link-local or
+  // metadata address are fetched. A host can be permitted explicitly through
+  // the `RSS_ALLOWED_HOSTS` environment variable.
+  const safeUrl = await assertSafeHttpUrlAsync(feedUrl, {
+    allowlistEnvVar: "RSS_ALLOWED_HOSTS",
+    context: "RSS feed URL",
+  });
 
-    if (!res.ok) return [];
+  const res = await fetch(safeUrl, {
+    headers: {
+      "User-Agent": "FirstCupTechWorker/1.0",
+      Accept: "application/rss+xml, application/atom+xml, text/xml, */*",
+    },
+    signal: AbortSignal.timeout(5000),
+  });
 
-    const xml = await res.text();
-    return parseRssXml(xml, limit, source);
-  } catch {
-    return [];
+  if (!res.ok) {
+    throw new Error(`RSS feed request failed with HTTP ${res.status}`);
   }
+
+  const xml = await res.text();
+  return parseRssXml(xml, limit, source);
 }

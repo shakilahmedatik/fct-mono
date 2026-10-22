@@ -18,6 +18,7 @@ import {
 import { ArrowLeft, Coffee } from "lucide-react";
 import { useRouter } from "next/navigation";
 import * as React from "react";
+import { webUrl } from "../../../lib/config";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -38,7 +39,7 @@ export default function LoginPage() {
         const res = await authClient.signUp.email({
           email,
           password,
-          name: name || "Engineering Lead",
+          name: name.trim(),
         });
         if (res.error) {
           setErrorMsg(res.error.message || "Failed to create account.");
@@ -70,7 +71,7 @@ export default function LoginPage() {
       {/* Top Bar Utilities */}
       <div className="absolute top-4 sm:top-8 left-4 sm:left-8">
         <a
-          href="http://localhost:3000"
+          href={webUrl("/")}
           className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
@@ -114,6 +115,7 @@ export default function LoginPage() {
                 </Label>
                 <Input
                   id="auth-name"
+                  name="name"
                   type="text"
                   placeholder="Alex Rivera"
                   value={name}
@@ -130,6 +132,7 @@ export default function LoginPage() {
               </Label>
               <Input
                 id="auth-email"
+                name="email"
                 type="email"
                 placeholder="alex@techcompany.com"
                 value={email}
@@ -150,6 +153,7 @@ export default function LoginPage() {
               </div>
               <Input
                 id="auth-password"
+                name="password"
                 type="password"
                 placeholder="••••••••"
                 value={password}

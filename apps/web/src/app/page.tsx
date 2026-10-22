@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { AudioDigestPreview, type LatestBriefingData } from "../components/audio-digest-preview";
+import { appUrl } from "../lib/config";
 
 async function getLatestBriefing(): Promise<LatestBriefingData | null> {
   try {
@@ -85,7 +86,7 @@ export default async function HomePage() {
 
           {/* Action Buttons */}
           <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-            <a href="http://localhost:3001">
+            <a href={appUrl("/")}>
               <Button
                 variant="primary"
                 size="lg"
@@ -457,7 +458,7 @@ export default async function HomePage() {
             </p>
 
             <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
-              <a href="http://localhost:3001">
+              <a href={appUrl("/")}>
                 <Button
                   variant="primary"
                   size="lg"

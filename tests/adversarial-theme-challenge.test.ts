@@ -309,12 +309,14 @@ describe("Adversarial Challenge: Milestone 1 Theme Foundations", () => {
         console.log(`  ${r.passed ? "PASS" : "FAIL"} [${r.ratio}:1 >= ${r.req}:1] ${r.name}`);
       }
 
-      // All 17 token pairs pass, including calibrated destructive-foreground / destructive:
+      // All 17 token pairs pass, including calibrated destructive-foreground / destructive.
+      // The exact ratio moves with the design tokens, so assert the WCAG AA
+      // requirement (>= 4.5:1) instead of a hardcoded ratio.
       const destructiveCheck = results.find(
         (r) => r.name === "destructive-foreground / destructive",
       )!;
-      expect(destructiveCheck.ratio).toBe(4.67);
-      expect(destructiveCheck.passed).toBeTrue(); // 4.67:1 >= 4.5:1 required by WCAG AA!
+      expect(destructiveCheck.ratio).toBeGreaterThanOrEqual(4.5);
+      expect(destructiveCheck.passed).toBeTrue(); // >= 4.5:1 required by WCAG AA!
 
       // All pairs must pass:
       for (const r of results) {

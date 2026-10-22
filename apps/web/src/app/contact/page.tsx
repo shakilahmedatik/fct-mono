@@ -1,5 +1,6 @@
 "use client";
 
+import { createApiClient } from "@repo/api-client";
 import {
   Alert,
   AlertDescription,
@@ -43,6 +44,11 @@ export default function ContactPage() {
 
   const [status, setStatus] = React.useState<"idle" | "submitting" | "success" | "error">("idle");
   const [errorMessage, setErrorMessage] = React.useState("");
+  const [fieldErrors, setFieldErrors] = React.useState<{
+    name?: string;
+    email?: string;
+    message?: string;
+  }>({});
   const [submittedData, setSubmittedData] = React.useState<{
     name: string;
     email: string;
@@ -52,56 +58,61 @@ export default function ContactPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage("");
+    setFieldErrors({});
 
     // Client-side validations
+    const nextFieldErrors: { name?: string; email?: string; message?: string } = {};
     if (!name.trim()) {
-      setStatus("error");
-      setErrorMessage("Please enter your name.");
-      return;
+      nextFieldErrors.name = "Please enter your name.";
     }
     if (!email.trim() || !email.includes("@")) {
-      setStatus("error");
-      setErrorMessage("Please provide a valid corporate email address.");
-      return;
+      nextFieldErrors.email = "Please provide a valid corporate email address.";
     }
     if (message.trim().length < 10) {
+      nextFieldErrors.message = "Message must be at least 10 characters long.";
+    }
+    if (Object.keys(nextFieldErrors).length > 0) {
+      setFieldErrors(nextFieldErrors);
       setStatus("error");
-      setErrorMessage("Message must be at least 10 characters long.");
+      setErrorMessage("Please correct the highlighted fields and try again.");
       return;
     }
 
     setStatus("submitting");
 
     try {
-      // Attempt backend API post to /api/contact if available
-      const res = await fetch("http://localhost:3002/contact", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          email,
-          subject: subject.trim() ? `[${inquiryType}] ${subject}` : `[${inquiryType}] Inquiry`,
-          message,
-        }),
-      }).catch(() => null);
+      const client = createApiClient();
+      const res = await client.contact.$post({
+        json: {
+          name: name.trim(),
+          email: email.trim(),
+          subject: subject.trim()
+            ? `[${inquiryType}] ${subject.trim()}`
+            : `[${inquiryType}] Inquiry`,
+          message: message.trim(),
+        },
+      });
 
-      if (res && !res.ok) {
-        // If API returned structured error, handle gracefully
-        const errorData = await res.json().catch(() => null);
-        if (errorData?.error) {
-          setStatus("error");
-          setErrorMessage(errorData.error);
-          return;
-        }
+      if (!res.ok) {
+        const errorData = (await res.json().catch(() => null)) as unknown as {
+          error?: string;
+        } | null;
+        setStatus("error");
+        setErrorMessage(
+          errorData?.error ??
+            `The server rejected the message (HTTP ${res.status}). Please try again later.`,
+        );
+        return;
       }
 
-      // Success
+      // Only a real 2xx from the API counts as success.
       setSubmittedData({ name, email, inquiryType });
       setStatus("success");
     } catch {
-      // Resilient fallback for dev mode
-      setSubmittedData({ name, email, inquiryType });
-      setStatus("success");
+      setStatus("error");
+      setErrorMessage(
+        "We could not reach the server. Your message was not sent — please check your connection and try again.",
+      );
     }
   };
 
@@ -113,6 +124,7 @@ export default function ContactPage() {
     setMessage("");
     setStatus("idle");
     setErrorMessage("");
+    setFieldErrors({});
     setSubmittedData(null);
   };
 
@@ -169,11 +181,12 @@ export default function ContactPage() {
                   <div className="p-4 rounded-xl bg-muted/40 border border-border/50 text-xs text-muted-foreground space-y-2">
                     <div className="flex items-center gap-2 font-medium text-foreground">
                       <ShieldCheck className="h-4 w-4 text-accent" />
-                      <span>Direct Enterprise Ticket #FC-849201</span>
+                      <span>Your inquiry was delivered to our support inbox.</span>
                     </div>
                     <p>
-                      A confirmation email with ticket references has been dispatched to your
-                      address.
+                      A member of our platform team will follow up at{" "}
+                      <strong className="text-foreground">{submittedData.email}</strong> within 2
+                      hours.
                     </p>
                   </div>
 
@@ -190,7 +203,7 @@ export default function ContactPage() {
               ) : (
                 <form onSubmit={handleSubmit} className="space-y-5">
                   {status === "error" && errorMessage && (
-                    <Alert variant="destructive">
+                    <Alert variant="destructive" role="alert">
                       <AlertCircle className="h-4 w-4" />
                       <AlertTitle>Submission Error</AlertTitle>
                       <AlertDescription>{errorMessage}</AlertDescription>
@@ -204,10 +217,13 @@ export default function ContactPage() {
                     </Label>
                     <Input
                       id="contact-name"
+                      name="name"
                       placeholder="Alex Chen"
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       leftIcon={<User className="h-4 w-4" />}
+                      autoComplete="name"
+                      error={fieldErrors.name}
                       required
                     />
                   </div>
@@ -219,11 +235,14 @@ export default function ContactPage() {
                     </Label>
                     <Input
                       id="contact-email"
+                      name="email"
                       type="email"
                       placeholder="alex@company.com"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       leftIcon={<Mail className="h-4 w-4" />}
+                      autoComplete="email"
+                      error={fieldErrors.email}
                       required
                     />
                   </div>
@@ -250,10 +269,12 @@ export default function ContactPage() {
                     <Label htmlFor="contact-subject">Subject</Label>
                     <Input
                       id="contact-subject"
+                      name="subject"
                       placeholder="e.g. Dedicated Telegram Bot provisioning for engineering org"
                       value={subject}
                       onChange={(e) => setSubject(e.target.value)}
                       leftIcon={<MessageSquare className="h-4 w-4" />}
+                      autoComplete="off"
                     />
                   </div>
 
@@ -264,10 +285,12 @@ export default function ContactPage() {
                     </Label>
                     <Textarea
                       id="contact-message"
+                      name="message"
                       rows={5}
                       placeholder="Please share details on your team size, custom feed requirements, or technical questions..."
                       value={message}
                       onChange={(e) => setMessage(e.target.value)}
+                      error={fieldErrors.message}
                       required
                     />
                   </div>

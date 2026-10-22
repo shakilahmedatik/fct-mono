@@ -31,7 +31,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-bun.lockb
+# NOTE: `bun.lock` (the text lockfile this repo uses) is intentionally NOT
+# ignored — it must be committed so `bun install --frozen-lockfile` is
+# reproducible in CI and in the container builds.
 *.tsbuildinfo
 
 # OS files

@@ -1,3 +1,4 @@
+import { isSafeHttpUrl } from "@repo/pipeline";
 import { workerLogger } from "../lib/logger";
 import type {
   AudioBriefDeliveryPayload,
@@ -6,6 +7,14 @@ import type {
   DeliveryResult,
   TextBriefDeliveryPayload,
 } from "./types";
+
+/** Telegram rejects captions longer than 1024 characters. */
+const TELEGRAM_CAPTION_LIMIT = 1024;
+/** Telegram rejects messages longer than 4096 characters. */
+const TELEGRAM_TEXT_LIMIT = 4096;
+
+/** Every outbound Telegram request is aborted after this many milliseconds. */
+const TELEGRAM_REQUEST_TIMEOUT_MS = 10_000;
 
 interface TelegramApiResponse {
   ok?: boolean;
@@ -122,6 +131,158 @@ function isLocalOrPrivateUrl(urlStr: string): boolean {
   }
 }
 
+/**
+ * Mock deliveries are only used when they were explicitly requested.
+ *
+ * A missing bot token used to be treated as "mock mode", which turned a typo
+ * in an environment variable into a delivery system that reported 100% success
+ * without sending anything.
+ */
+function isMockMode(): boolean {
+  return process.env.DELIVERY_MOCK === "true";
+}
+
+function assertTelegramConfigured(): void {
+  if (isMockMode()) return;
+
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || token.includes("your-") || token.trim().length === 0) {
+    throw new Error(
+      "Telegram bot token is not configured (TELEGRAM_BOT_TOKEN). Set DELIVERY_MOCK=true to send mock deliveries in development.",
+    );
+  }
+}
+
+/**
+ * Truncate a piece of text on a word boundary.
+ */
+function truncateText(text: string, maxLength: number): string {
+  if (text.length <= maxLength) return text;
+  const clipped = text.slice(0, Math.max(0, maxLength - 1));
+  const lastSpace = clipped.lastIndexOf(" ");
+  const base = lastSpace > maxLength * 0.6 ? clipped.slice(0, lastSpace) : clipped;
+  return `${base.trimEnd()}…`;
+}
+
+/**
+ * Telegram only accepts a small set of tags. This checks that every opened tag
+ * is closed again — an unbalanced caption is rejected by Telegram with a 400
+ * that is otherwise very easy to miss.
+ */
+export function hasBalancedTelegramTags(html: string): boolean {
+  const stack: string[] = [];
+  const pattern = /<(\/?)(b|i|a)>/g;
+  let match = pattern.exec(html);
+
+  while (match !== null) {
+    const closing = match[1] === "/";
+    const tag = match[2];
+    if (closing) {
+      if (stack.pop() !== tag) return false;
+    } else {
+      stack.push(tag);
+    }
+    match = pattern.exec(html);
+  }
+
+  return stack.length === 0;
+}
+
+interface TelegramBlockOptions {
+  limit: number;
+  footer: string;
+  includeWhy: boolean;
+  maxItems: number;
+  intro: string;
+  header: string;
+}
+
+/**
+ * Build a Telegram message that fits into the given character budget.
+ *
+ * The budget is respected by truncating the *fields* (title, why it matters)
+ * instead of slicing the assembled string: slicing can cut an open tag in half
+ * and Telegram then rejects the whole message.
+ */
+function buildTelegramMessage(
+  payload: AudioBriefDeliveryPayload | TextBriefDeliveryPayload,
+  options: TelegramBlockOptions,
+): string {
+  const { limit, footer, includeWhy, maxItems, intro, header } = options;
+
+  const blocks: string[] = [];
+  let used = header.length + intro.length + footer.length;
+
+  for (const [index, item] of payload.items.slice(0, maxItems).entries()) {
+    const sourceBadge = `[${escapeTelegramHtml(item.source.toUpperCase())}]`;
+    const link = buildItemLink(item.url, item.title);
+
+    // The "why it matters" line is the first thing that is shortened: it is
+    // supplementary, the link and the title are not.
+    const why =
+      includeWhy && item.whyItMatters
+        ? `\n   ↳ <i>${escapeTelegramHtml(truncateText(item.whyItMatters, 200))}</i>`
+        : "";
+
+    let block = `${index + 1}. <b>${sourceBadge}</b> ${link}${why}`;
+    let title = item.title;
+
+    while (block.length + used > limit && title.length > 24) {
+      title = truncateText(title, Math.max(24, Math.floor(title.length * 0.8)));
+      const rebuilt = buildItemLink(item.url, title);
+      block = `${index + 1}. <b>${sourceBadge}</b> ${rebuilt}${why}`;
+    }
+
+    if (block.length + used > limit) {
+      // Still too long: drop the explanation and try again.
+      const withoutWhy = `${index + 1}. <b>${sourceBadge}</b> ${buildItemLink(item.url, title)}`;
+      if (withoutWhy.length + used > limit) break;
+      block = withoutWhy;
+    }
+
+    blocks.push(block);
+    used += block.length + 2;
+  }
+
+  const message = `${header}${intro}${blocks.join("\n\n")}${footer}`;
+
+  if (message.length <= limit && hasBalancedTelegramTags(message)) {
+    return message;
+  }
+
+  // Last resort: a caption without any markup, so that Telegram never has to
+  // parse an unbalanced document.
+  const plain = [
+    `First Cup Tech — Daily Brief (${new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(new Date())})`,
+    payload.title || "",
+    ...payload.items
+      .slice(0, maxItems)
+      .map(
+        (item, index) =>
+          `${index + 1}. [${item.source.toUpperCase()}] ${item.title}\n   ${item.url}`,
+      ),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  return plain.length <= limit ? plain : plain.slice(0, limit);
+}
+
+/**
+ * Render the link of an item.
+ *
+ * The URL comes from an RSS feed and is therefore attacker controlled: it is
+ * only used when it is an http(s) URL, and it is HTML escaped before it is
+ * interpolated into the `href` attribute.
+ */
+function buildItemLink(url: string | undefined | null, title: string): string {
+  const safeTitle = escapeTelegramHtml(title);
+  if (!url || !isSafeHttpUrl(url)) {
+    return safeTitle;
+  }
+  return `<a href="${escapeTelegramHtml(url)}">${safeTitle}</a>`;
+}
+
 export class TelegramDeliveryAdapter implements DeliveryChannelAdapter {
   readonly channel = "telegram" as const;
 
@@ -144,35 +305,19 @@ export class TelegramDeliveryAdapter implements DeliveryChannelAdapter {
       day: "numeric",
     }).format(new Date());
 
-    const title = `☕ <b>First Cup Tech — Daily Brief</b> (${dateStr})\n`;
-    const intro = `<i>${escapeTelegramHtml(payload.title || "Your executive morning tech brief")}</i>\n\n`;
-
-    const highlights = payload.items
-      .slice(0, 5)
-      .map((item, idx) => {
-        const sourceBadge = `[${escapeTelegramHtml(item.source.toUpperCase())}]`;
-        const link = item.url
-          ? `<a href="${item.url}">${escapeTelegramHtml(item.title)}</a>`
-          : escapeTelegramHtml(item.title);
-        const why = item.whyItMatters
-          ? `\n   ↳ <i>${escapeTelegramHtml(item.whyItMatters)}</i>`
-          : "";
-        return `${idx + 1}. <b>${sourceBadge}</b> ${link}${why}`;
-      })
-      .join("\n\n");
-
+    const header = `☕ <b>First Cup Tech — Daily Brief</b> (${dateStr})\n`;
+    const intro = `<i>${escapeTelegramHtml(truncateText(payload.title || "Your executive morning tech brief", 140))}</i>\n\n`;
     const footer =
       "\n\n🎙️ <i>Listen to the 3-min audio attached above. Have a high-impact build day!</i>";
-    const fullCaption = `${title}${intro}${highlights}${footer}`;
 
-    if (fullCaption.length <= 1024) {
-      return fullCaption;
-    }
-
-    return `${title}${intro}${payload.items
-      .slice(0, 3)
-      .map((i, idx) => `${idx + 1}. <a href="${i.url}">${escapeTelegramHtml(i.title)}</a>`)
-      .join("\n")}${footer}`.slice(0, 1020);
+    return buildTelegramMessage(payload, {
+      limit: TELEGRAM_CAPTION_LIMIT,
+      footer,
+      includeWhy: true,
+      maxItems: 5,
+      intro,
+      header,
+    });
   }
 
   formatTextDigest(payload: TextBriefDeliveryPayload | AudioBriefDeliveryPayload): string {
@@ -181,51 +326,24 @@ export class TelegramDeliveryAdapter implements DeliveryChannelAdapter {
       day: "numeric",
     }).format(new Date());
 
-    const title = `☕ <b>First Cup Tech — Daily Brief</b> (${dateStr})\n`;
-    const intro = `<i>${escapeTelegramHtml(payload.title || "Your executive morning tech brief")}</i>\n\n`;
-
-    const highlights = payload.items
-      .slice(0, 5)
-      .map((item, idx) => {
-        const sourceBadge = `[${escapeTelegramHtml(item.source.toUpperCase())}]`;
-        const link = item.url
-          ? `<a href="${item.url}">${escapeTelegramHtml(item.title)}</a>`
-          : escapeTelegramHtml(item.title);
-        const why = item.whyItMatters
-          ? `\n   ↳ <i>${escapeTelegramHtml(item.whyItMatters)}</i>`
-          : "";
-        return `${idx + 1}. <b>${sourceBadge}</b> ${link}${why}`;
-      })
-      .join("\n\n");
-
+    const header = `☕ <b>First Cup Tech — Daily Brief</b> (${dateStr})\n`;
+    const intro = `<i>${escapeTelegramHtml(truncateText(payload.title || "Your executive morning tech brief", 140))}</i>\n\n`;
     const footer =
       "\n\n📝 <i>Here is your executive morning tech briefing. Have a high-impact build day!</i>";
-    const fullText = `${title}${intro}${highlights}${footer}`;
 
-    if (fullText.length <= 4000) {
-      return fullText;
-    }
-
-    const compactHighlights = payload.items
-      .slice(0, 3)
-      .map((item, idx) => {
-        const sourceBadge = `[${escapeTelegramHtml(item.source.toUpperCase())}]`;
-        const link = item.url
-          ? `<a href="${item.url}">${escapeTelegramHtml(item.title)}</a>`
-          : escapeTelegramHtml(item.title);
-        return `${idx + 1}. <b>${sourceBadge}</b> ${link}`;
-      })
-      .join("\n\n");
-
-    const compactText = `${title}${intro}${compactHighlights}${footer}`;
-    if (compactText.length <= 4000) {
-      return compactText;
-    }
-
-    return `${compactText.slice(0, 3990)}...`;
+    return buildTelegramMessage(payload, {
+      limit: TELEGRAM_TEXT_LIMIT,
+      footer,
+      includeWhy: false,
+      maxItems: 5,
+      intro,
+      header,
+    });
   }
 
   async sendText(payload: TextBriefDeliveryPayload): Promise<DeliveryResult> {
+    assertTelegramConfigured();
+
     const token = process.env.TELEGRAM_BOT_TOKEN;
 
     if (!this.isConfigured || !token) {
@@ -254,6 +372,7 @@ export class TelegramDeliveryAdapter implements DeliveryChannelAdapter {
           parse_mode: "HTML",
           disable_web_page_preview: false,
         }),
+        signal: AbortSignal.timeout(TELEGRAM_REQUEST_TIMEOUT_MS),
       });
 
       let data: TelegramApiResponse;
@@ -307,6 +426,8 @@ export class TelegramDeliveryAdapter implements DeliveryChannelAdapter {
   }
 
   async sendAudio(payload: AudioBriefDeliveryPayload): Promise<DeliveryResult> {
+    assertTelegramConfigured();
+
     if (!payload.audioUrl) {
       workerLogger.info("[telegram] No audioUrl provided, falling back to text briefing");
       return this.sendText(payload);
@@ -357,6 +478,7 @@ export class TelegramDeliveryAdapter implements DeliveryChannelAdapter {
           performer: "First Cup Tech",
           duration: payload.durationSec,
         }),
+        signal: AbortSignal.timeout(TELEGRAM_REQUEST_TIMEOUT_MS),
       });
 
       let data: TelegramApiResponse;
@@ -428,7 +550,9 @@ export class TelegramDeliveryAdapter implements DeliveryChannelAdapter {
         }
       }
 
-      const res = await fetch(audioUrl);
+      const res = await fetch(audioUrl, {
+        signal: AbortSignal.timeout(TELEGRAM_REQUEST_TIMEOUT_MS),
+      });
       if (res.ok) {
         const arrayBuf = await res.arrayBuffer();
         return Buffer.from(arrayBuf);
@@ -466,6 +590,7 @@ export class TelegramDeliveryAdapter implements DeliveryChannelAdapter {
       const response = await fetch(apiUrl, {
         method: "POST",
         body: form,
+        signal: AbortSignal.timeout(TELEGRAM_REQUEST_TIMEOUT_MS),
       });
 
       let data: TelegramApiResponse;

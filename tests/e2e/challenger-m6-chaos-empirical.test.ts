@@ -22,7 +22,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
-// @ts-expect-error
 import { renderToStaticMarkup } from "../../packages/ui/node_modules/react-dom/server";
 import {
   Alert,

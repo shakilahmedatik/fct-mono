@@ -271,7 +271,7 @@ describe("Challenger 2: Empirical Component Suite Stress & Edge Tests", () => {
 
     test("1.18 Tooltip renders without crashing", () => {
       const inspector = inspectHtml(
-        el(Tooltip, { content: "Helpful hint" }, el("button", null, "Trigger")),
+        el(Tooltip, { content: "Helpful hint", children: el("button", null, "Trigger") }),
       );
       expect(inspector.contains("Trigger")).toBeTrue();
     });
@@ -503,22 +503,24 @@ describe("Challenger 2: Empirical Component Suite Stress & Edge Tests", () => {
   describe("Area 5: Tooltip Edge Cases", () => {
     test("5.1 Tooltip renders wrapper and child safely during SSR", () => {
       const inspector = inspectHtml(
-        el(
-          Tooltip,
-          { content: "Copy API Key", side: "bottom" },
-          el(Button, { size: "sm" }, "Copy"),
-        ),
+        el(Tooltip, {
+          content: "Copy API Key",
+          side: "bottom",
+          children: el(Button, { size: "sm" }, "Copy"),
+        }),
       );
       expect(inspector.contains("Copy")).toBeTrue();
       expect(inspector.contains("relative inline-flex")).toBeTrue();
     });
 
     test("5.2 Tooltip handles null or empty content without throwing", () => {
-      const inspectorNull = inspectHtml(el(Tooltip, { content: null }, el("span", null, "Target")));
+      const inspectorNull = inspectHtml(
+        el(Tooltip, { content: null, children: el("span", null, "Target") }),
+      );
       expect(inspectorNull.contains("Target")).toBeTrue();
 
       const inspectorUndef = inspectHtml(
-        el(Tooltip, { content: undefined }, el("span", null, "Target")),
+        el(Tooltip, { content: undefined, children: el("span", null, "Target") }),
       );
       expect(inspectorUndef.contains("Target")).toBeTrue();
     });
@@ -558,7 +560,7 @@ describe("Challenger 2: Empirical Component Suite Stress & Edge Tests", () => {
 
       // Verify Tooltip component itself renders with children and attributes
       const inspector = inspectHtml(
-        el(Tooltip, { content: "Safe content" }, el("button", null, "Hover target")),
+        el(Tooltip, { content: "Safe content", children: el("button", null, "Hover target") }),
       );
       expect(inspector.contains("Hover target")).toBeTrue();
       expect(inspector.contains("relative inline-flex")).toBeTrue();
@@ -586,7 +588,7 @@ describe("Challenger 2: Empirical Component Suite Stress & Edge Tests", () => {
       const sides = ["top", "bottom", "left", "right"] as const;
       for (const side of sides) {
         const inspector = inspectHtml(
-          el(Tooltip, { content: "Tip", side }, el("span", null, side)),
+          el(Tooltip, { content: "Tip", side, children: el("span", null, side) }),
         );
         expect(inspector.contains(side)).toBeTrue();
         expect(inspector.contains("relative inline-flex")).toBeTrue();
@@ -770,11 +772,10 @@ describe("Challenger 2: Empirical Component Suite Stress & Edge Tests", () => {
               NavbarActions,
               null,
               // 2. Tooltip wrapping Button
-              el(
-                Tooltip,
-                { content: "Quick system status" },
-                el(Button, { size: "sm", variant: "outline" }, "Health"),
-              ),
+              el(Tooltip, {
+                content: "Quick system status",
+                children: el(Button, { size: "sm", variant: "outline" }, "Health"),
+              }),
               // 3. Badge
               el(Badge, { variant: "success" }, "Live v1.0"),
             ),

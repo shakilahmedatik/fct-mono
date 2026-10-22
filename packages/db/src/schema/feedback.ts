@@ -43,12 +43,16 @@ export const itemInteractions = pgTable(
     action: itemInteractionActionEnum("action").notNull(),
     weight: real("weight").default(1.0).notNull(),
     listenedSeconds: integer("listened_seconds"),
-    digestId: text("digest_id"),
+    // Optional link back to the digest the interaction happened in. Indexed
+    // and constrained to the digest table so interaction analytics can join
+    // without a sequential scan.
+    digestId: text("digest_id").references(() => digests.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
     index("item_interaction_user_id_created_at_idx").on(table.userId, table.createdAt),
     index("item_interaction_story_membership_id_idx").on(table.storyMembershipId),
     index("item_interaction_action_created_at_idx").on(table.action, table.createdAt),
+    index("item_interaction_digest_id_idx").on(table.digestId),
   ],
 );

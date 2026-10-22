@@ -14,7 +14,13 @@ export const digestRouter = new Hono<AppBindings>()
   .get("/", zValidator("query", digestQuerySchema), async (c) => {
     const user = c.get("user");
     const query = c.req.valid("query");
-    const digests = await digestService.getUserDigests(user.id, query.limit, query.offset);
+    // `offset` is bounded so a deep page cannot force the database to scan and
+    // sort the whole digest table.
+    const offset = Math.min(query.offset, 10_000);
+    const digests = await digestService.getUserDigests(user.id, query.limit, offset, {
+      status: query.status,
+      type: query.type,
+    });
     return c.json({ digests });
   })
   .get("/latest", async (c) => {

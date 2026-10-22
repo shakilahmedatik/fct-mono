@@ -1,0 +1,13 @@
+{
+  "name": "@repo/tests",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@repo/config-ts": "workspace:*",
+    "typescript": "^5.8.2"
+  }
+}

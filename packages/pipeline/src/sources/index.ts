@@ -3,6 +3,7 @@
 // Configurable, source-definition-driven crawling with per-source error isolation
 // =============================================================================
 
+import { logger } from "../stages/logger";
 import type { RawSignal, SourceDefinition } from "../types";
 import { DEFAULT_SOURCES, getEnabledSources, mergeSourceConfig } from "./config";
 import { fetchForemSignals } from "./forem";
@@ -33,7 +34,14 @@ export interface SourceFetchResult {
   signalCount: number;
   durationMs: number;
   error?: string;
-  status: "success" | "error" | "skipped";
+  status: "success" | "error" | "skipped" | "fallback";
+  /**
+   * True when the result does not represent freshly ingested content (for
+   * example curated seed content that was substituted because the live
+   * sources were unavailable). A degraded source must never be presented as
+   * real ingested news.
+   */
+  degraded?: boolean;
 }
 
 /**
@@ -115,23 +123,39 @@ export async function ingestFromSources(
 
   await Promise.allSettled(promises);
 
-  // If live sources yielded fewer than 6 items, supplement with curated seeds
+  // If live sources yielded fewer than 6 items, supplement with curated seeds.
+  // The substitution is reported as a *fallback*, never as a success: the seed
+  // content is fabricated and must not be presented as ingested news.
   if (allSignals.length < 6) {
     const seeds = getSeedFallbackSignals();
     const existingUrls = new Set(allSignals.map((s) => s.url));
+    let added = 0;
+
     for (const seed of seeds) {
       if (!existingUrls.has(seed.url)) {
         allSignals.push(seed);
+        existingUrls.add(seed.url);
+        added += 1;
       }
     }
-    sourceResults.push({
+
+    const result: SourceFetchResult = {
       sourceId: "seed-fallback",
       sourceName: "Curated Seed Data",
       sourceType: "fallback",
-      signalCount: allSignals.length,
+      signalCount: added,
       durationMs: 0,
-      status: "success",
-    });
+      status: "fallback",
+      degraded: true,
+      error: `Live sources returned ${allSignals.length - added} signals; ${added} curated seed signals were substituted.`,
+    };
+
+    sourceResults.push(result);
+    onSourceComplete?.(result);
+    logger.warn(
+      { liveSignals: allSignals.length - added, seedSignals: added },
+      "Live ingestion was degraded — curated seed content was substituted",
+    );
   }
 
   return {

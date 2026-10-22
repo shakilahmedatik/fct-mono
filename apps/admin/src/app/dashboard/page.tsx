@@ -37,139 +37,126 @@ import * as React from "react";
 
 interface QueueInfo {
   name: string;
-  description: string;
   waiting: number;
   active: number;
   completed: number;
   failed: number;
-  status: "Active" | "Idle" | "Degraded";
+  delayed: number;
+  paused: number;
 }
 
 interface RecentUser {
   id: string;
   name: string;
   email: string;
-  role: "admin" | "subscriber" | "trial";
-  plan: "PRO" | "FREE";
+  role: string;
+  plan: string;
   status: "active" | "suspended";
   activity: string;
 }
 
-const DEFAULT_QUEUES: QueueInfo[] = [
-  {
-    name: "digest-pipeline",
-    description: "Crawl signals, semantic clustering, ranking",
-    waiting: 0,
-    active: 0,
-    completed: 1420,
-    failed: 0,
-    status: "Active",
-  },
-  {
-    name: "audio-generation",
-    description: "Kokoro TTS voice synthesis & audio brief packaging",
-    waiting: 1,
-    active: 1,
-    completed: 890,
-    failed: 0,
-    status: "Active",
-  },
-  {
-    name: "telegram-delivery",
-    description: "Instant audio & text broadcast dispatch",
-    waiting: 0,
-    active: 0,
-    completed: 2150,
-    failed: 0,
-    status: "Active",
-  },
-  {
-    name: "email-delivery",
-    description: "HTML daily briefing newsletter dispatch",
-    waiting: 0,
-    active: 0,
-    completed: 4890,
-    failed: 1,
-    status: "Active",
-  },
-];
+interface PlatformStats {
+  totalUsers: number;
+  totalDigests: number;
+  totalSubscribers: number;
+  totalFeedback: number;
+}
 
-const DEFAULT_RECENT_USERS: RecentUser[] = [
-  {
-    id: "usr_01",
-    name: "Alex Rivera",
-    email: "alex@engineering.com",
-    role: "subscriber",
-    plan: "PRO",
-    status: "active",
-    activity: "Dispatched audio brief 15m ago",
-  },
-  {
-    id: "usr_02",
-    name: "Elena Rostova",
-    email: "elena@quantumlabs.ai",
-    role: "subscriber",
-    plan: "PRO",
-    status: "active",
-    activity: "Updated topic tags 1h ago",
-  },
-  {
-    id: "usr_03",
-    name: "Sam Chen",
-    email: "sam@builder.io",
-    role: "trial",
-    plan: "FREE",
-    status: "active",
-    activity: "Signed up 3h ago",
-  },
-  {
-    id: "usr_04",
-    name: "Jordan Vance",
-    email: "jordan@suspicious-bot.net",
-    role: "subscriber",
-    plan: "PRO",
-    status: "suspended",
-    activity: "Rate limit triggered 6h ago",
-  },
-];
+/**
+ * Static description of the known worker queues. This is documentation about
+ * the queue names, not a measurement — the counters come from the API.
+ */
+const QUEUE_DESCRIPTIONS: Record<string, string> = {
+  digest: "Crawl signals, semantic clustering, ranking",
+  audio: "Kokoro TTS voice synthesis & audio brief packaging",
+  telegram: "Instant audio & text broadcast dispatch",
+  email: "HTML daily briefing newsletter dispatch",
+};
+
+function describeQueue(name: string): string {
+  return QUEUE_DESCRIPTIONS[name] ?? "Background worker queue";
+}
+
+function formatNumber(value: number): string {
+  return value.toLocaleString();
+}
 
 export default function AdminDashboardPage() {
-  const [stats, setStats] = React.useState({
-    activeSubscribers: "1,420",
-    dailyDigests: "4,890",
-    audioMinutes: "328m",
-    pipelineLatency: "1.4s / 0.02%",
-    totalUsers: 1680,
-    proUsers: 1420,
-    freeUsers: 260,
-  });
-
-  const [queues, _setQueues] = React.useState<QueueInfo[]>(DEFAULT_QUEUES);
-  const [recentUsers, _setRecentUsers] = React.useState<RecentUser[]>(DEFAULT_RECENT_USERS);
-  const [isLoading, setIsLoading] = React.useState(false);
+  const [stats, setStats] = React.useState<PlatformStats | null>(null);
+  const [queues, setQueues] = React.useState<QueueInfo[]>([]);
+  const [recentUsers, setRecentUsers] = React.useState<RecentUser[]>([]);
+  const [apiHealthy, setApiHealthy] = React.useState<boolean | null>(null);
+  const [isLoading, setIsLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
 
   const loadData = React.useCallback(async () => {
     setIsLoading(true);
+    setLoadError(null);
+
     try {
       const client = createApiClient();
-      const res = await client.admin.stats.$get();
-      if (res.ok) {
-        const data = await res.json();
+
+      const [statsRes, queuesRes, usersRes] = await Promise.all([
+        client.admin.stats.$get(),
+        client.admin.playground.queues.status.$get(),
+        client.admin.users.$get({ query: { limit: 5 } }),
+      ]);
+
+      if (statsRes.ok) {
+        const data = await statsRes.json();
         if (data.stats) {
-          setStats((prev) => ({
-            ...prev,
-            activeSubscribers: data.stats.totalSubscribers
-              ? data.stats.totalSubscribers.toLocaleString()
-              : prev.activeSubscribers,
-            dailyDigests: data.stats.totalDigests
-              ? data.stats.totalDigests.toLocaleString()
-              : prev.dailyDigests,
-            totalUsers: data.stats.totalUsers || prev.totalUsers,
-          }));
+          setStats({
+            totalUsers: data.stats.totalUsers ?? 0,
+            totalDigests: data.stats.totalDigests ?? 0,
+            totalSubscribers: data.stats.totalSubscribers ?? 0,
+            totalFeedback: data.stats.totalFeedback ?? 0,
+          });
         }
+      } else {
+        setLoadError(`Platform metrics are unavailable (HTTP ${statsRes.status}).`);
+      }
+
+      if (queuesRes.ok) {
+        const data = await queuesRes.json();
+        setQueues(Array.isArray(data.queues) ? (data.queues as QueueInfo[]) : []);
+      } else {
+        setQueues([]);
+      }
+
+      if (usersRes.ok) {
+        const data = await usersRes.json();
+        const users = Array.isArray(data.users) ? data.users : [];
+        setRecentUsers(
+          users.map((u: AdminUserRecord) => ({
+            id: u.id,
+            name: u.name ?? "—",
+            email: u.email ?? "—",
+            role: u.role ?? "user",
+            plan: u.plan ?? "FREE",
+            status: u.banned ? ("suspended" as const) : ("active" as const),
+            activity: u.createdAt
+              ? `Joined ${new Date(u.createdAt).toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })}`
+              : "No sign-up date recorded",
+          })),
+        );
+      } else {
+        setRecentUsers([]);
+      }
+
+      // The API exposes its own health probe; nothing else is reported for
+      // the infrastructure dependencies.
+      try {
+        const healthRes = await client.health.$get();
+        setApiHealthy(healthRes.ok);
+      } catch {
+        setApiHealthy(false);
       }
     } catch {
-      // Fallback gracefully to default metrics
+      setLoadError("The admin API could not be reached. No metrics are shown.");
     } finally {
       setIsLoading(false);
     }
@@ -207,46 +194,46 @@ export default function AdminDashboardPage() {
         </Button>
       </div>
 
+      {loadError && (
+        <Card className="border-destructive/40 bg-destructive/5 p-4">
+          <p className="text-sm text-destructive" role="alert">
+            {loadError}
+          </p>
+        </Card>
+      )}
+
       {/* 4 Platform Metric Tiles using @repo/ui StatCard */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* 1. Active Subscribers */}
+        {/* 1. Total Users */}
         <StatCard
-          title="Active Subscribers"
-          value={stats.activeSubscribers}
-          change="+12% this week"
-          trend="positive"
+          title="Total Users"
+          value={stats ? formatNumber(stats.totalUsers) : "—"}
           icon={<Users className="h-5 w-5 text-accent" />}
+          description="Accounts registered on the platform"
+        />
+
+        {/* 2. Newsletter Subscribers */}
+        <StatCard
+          title="Newsletter Subscribers"
+          value={stats ? formatNumber(stats.totalSubscribers) : "—"}
+          icon={<Radio className="h-5 w-5 text-accent" />}
           description="Active email audience"
         />
 
-        {/* 2. Daily Digests Dispatched */}
+        {/* 3. Digests Generated */}
         <StatCard
-          title="Daily Digests Dispatched"
-          value={stats.dailyDigests}
-          change="99.8% on-time"
-          trend="positive"
-          icon={<Radio className="h-5 w-5 text-accent" />}
-          description="Master & cohort runs"
-        />
-
-        {/* 3. Audio Synthesis Minutes */}
-        <StatCard
-          title="Audio Synthesis Minutes"
-          value={stats.audioMinutes}
-          change="Kokoro v0.19 engine"
-          trend="neutral"
+          title="Digests Generated"
+          value={stats ? formatNumber(stats.totalDigests) : "—"}
           icon={<Headphones className="h-5 w-5 text-accent" />}
-          description="Neural voice synthesis"
+          description="Master &amp; cohort runs"
         />
 
-        {/* 4. Pipeline Latency / Failure Rate */}
+        {/* 4. Feedback Records */}
         <StatCard
-          title="Pipeline Latency / Failure Rate"
-          value={stats.pipelineLatency}
-          change="Healthy node status"
-          trend="positive"
+          title="Feedback Records"
+          value={stats ? formatNumber(stats.totalFeedback) : "—"}
           icon={<ShieldCheck className="h-5 w-5 text-accent" />}
-          description="0.02% queue error rate"
+          description="Reader ratings collected on digests"
         />
       </div>
 
@@ -261,10 +248,14 @@ export default function AdminDashboardPage() {
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="text-xs">
-              4 Active Pools
+              {queues.length} Worker Pools
             </Badge>
-            <Badge variant="success" className="text-xs">
-              Workers Healthy
+            <Badge variant={apiHealthy === false ? "destructive" : "success"} className="text-xs">
+              {apiHealthy === null
+                ? "API Unchecked"
+                : apiHealthy
+                  ? "API Reachable"
+                  : "API Unreachable"}
             </Badge>
           </div>
         </CardHeader>
@@ -280,7 +271,7 @@ export default function AdminDashboardPage() {
             <EmptyState
               icon={<Cpu className="h-6 w-6 text-muted-foreground" />}
               title="No Queue Metrics Available"
-              description="The background queue broker (Valkey) returned no active worker pools."
+              description="The background queue broker returned no worker pool metrics."
               action={
                 <Button variant="outline" size="sm" onClick={loadData}>
                   Retry Connection
@@ -304,7 +295,9 @@ export default function AdminDashboardPage() {
                 {queues.map((q) => (
                   <TableRow key={q.name}>
                     <TableCell className="font-mono text-xs font-semibold">{q.name}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{q.description}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {describeQueue(q.name)}
+                    </TableCell>
                     <TableCell className="text-center">
                       <Badge variant={q.waiting > 0 ? "warning" : "secondary"}>{q.waiting}</Badge>
                     </TableCell>
@@ -328,8 +321,8 @@ export default function AdminDashboardPage() {
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Badge variant={q.status === "Active" ? "success" : "secondary"}>
-                        {q.status}
+                      <Badge variant={q.active > 0 ? "success" : "secondary"}>
+                        {q.active > 0 ? "Active" : "Idle"}
                       </Badge>
                     </TableCell>
                   </TableRow>
@@ -342,15 +335,15 @@ export default function AdminDashboardPage() {
 
       {/* User Growth & Activity Telemetry (2-Column Grid) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* User Growth Breakdown Card */}
+        {/* Platform Totals Card */}
         <Card className="border-border/80 bg-card shadow-xs flex flex-col justify-between">
           <CardHeader className="flex flex-row items-center justify-between pb-3">
             <div>
               <CardTitle className="text-base font-semibold">
-                Subscriber Growth & Telemetry
+                Platform Totals &amp; Telemetry
               </CardTitle>
               <CardDescription className="text-xs">
-                Audience distribution across subscription tiers
+                Counts reported by the admin API
               </CardDescription>
             </div>
             <Link href="/users">
@@ -365,36 +358,32 @@ export default function AdminDashboardPage() {
             <div className="grid grid-cols-3 gap-3 text-center">
               <div className="p-3 rounded-xl bg-muted/30 border border-border/40">
                 <div className="text-2xl font-extrabold text-foreground">
-                  {stats.totalUsers.toLocaleString()}
+                  {stats ? formatNumber(stats.totalUsers) : "—"}
                 </div>
                 <div className="text-xs text-muted-foreground mt-0.5">Total Users</div>
               </div>
               <div className="p-3 rounded-xl bg-muted/30 border border-border/40">
                 <div className="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400">
-                  {stats.proUsers.toLocaleString()}
+                  {stats ? formatNumber(stats.totalSubscribers) : "—"}
                 </div>
-                <div className="text-xs text-muted-foreground mt-0.5">PRO Subscribers</div>
+                <div className="text-xs text-muted-foreground mt-0.5">Newsletter Subscribers</div>
               </div>
               <div className="p-3 rounded-xl bg-muted/30 border border-border/40">
                 <div className="text-2xl font-extrabold text-muted-foreground">
-                  {stats.freeUsers.toLocaleString()}
+                  {stats ? formatNumber(stats.totalDigests) : "—"}
                 </div>
-                <div className="text-xs text-muted-foreground mt-0.5">Free / Trial</div>
+                <div className="text-xs text-muted-foreground mt-0.5">Digests Generated</div>
               </div>
             </div>
 
             <div className="space-y-2 pt-2 border-t border-border/40 text-xs text-muted-foreground">
               <div className="flex items-center justify-between">
-                <span>Daily Digest Delivery Rate</span>
-                <span className="font-semibold text-foreground">99.8%</span>
+                <span>Delivery rate / synthesis duration / replication lag</span>
+                <span className="font-semibold text-foreground">Not reported by the API</span>
               </div>
               <div className="flex items-center justify-between">
-                <span>Average Synthesis Duration</span>
-                <span className="font-semibold text-foreground">1.4s</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span>PostgreSQL Replication Lag</span>
-                <span className="font-semibold text-foreground">&lt; 2ms</span>
+                <span>Pro / free plan split</span>
+                <span className="font-semibold text-foreground">Not reported by the API</span>
               </div>
             </div>
           </CardContent>
@@ -406,11 +395,11 @@ export default function AdminDashboardPage() {
             <div>
               <CardTitle className="text-base font-semibold">Recent Signups & Activity</CardTitle>
               <CardDescription className="text-xs">
-                Real-time subscriber events and status chips
+                Most recently registered accounts
               </CardDescription>
             </div>
             <Badge variant="outline" className="text-xs">
-              Live Stream
+              Latest 5
             </Badge>
           </CardHeader>
 
@@ -475,9 +464,17 @@ export default function AdminDashboardPage() {
               Core storage, cache, and ML synthesis node status
             </p>
           </div>
-          <Badge variant="success" className="gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span>All Systems Normal</span>
+          <Badge variant={apiHealthy === false ? "destructive" : "success"} className="gap-1.5">
+            {apiHealthy === null ? (
+              <span>Health Unchecked</span>
+            ) : apiHealthy ? (
+              <>
+                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>API Node Reachable</span>
+              </>
+            ) : (
+              <span>API Node Unreachable</span>
+            )}
           </Badge>
         </div>
 
@@ -492,7 +489,7 @@ export default function AdminDashboardPage() {
                 <div className="text-xs text-muted-foreground">pgvector enabled</div>
               </div>
             </div>
-            <Badge variant="success">Operational</Badge>
+            <Badge variant="outline">Not reported</Badge>
           </div>
 
           <div className="p-4 rounded-xl border border-border/40 bg-muted/20 flex items-center justify-between">
@@ -505,7 +502,7 @@ export default function AdminDashboardPage() {
                 <div className="text-xs text-muted-foreground">Queue broker</div>
               </div>
             </div>
-            <Badge variant="success">Operational</Badge>
+            <Badge variant="outline">Not reported</Badge>
           </div>
 
           <div className="p-4 rounded-xl border border-border/40 bg-muted/20 flex items-center justify-between">
@@ -518,7 +515,7 @@ export default function AdminDashboardPage() {
                 <div className="text-xs text-muted-foreground">Audio bucket</div>
               </div>
             </div>
-            <Badge variant="success">Operational</Badge>
+            <Badge variant="outline">Not reported</Badge>
           </div>
 
           <div className="p-4 rounded-xl border border-border/40 bg-muted/20 flex items-center justify-between">
@@ -531,10 +528,20 @@ export default function AdminDashboardPage() {
                 <div className="text-xs text-muted-foreground">v0.19 engine</div>
               </div>
             </div>
-            <Badge variant="success">Operational</Badge>
+            <Badge variant="outline">Not reported</Badge>
           </div>
         </div>
       </Card>
     </div>
   );
+}
+
+interface AdminUserRecord {
+  id: string;
+  name: string | null;
+  email: string | null;
+  role: string | null;
+  plan: string | null;
+  banned: boolean | null;
+  createdAt: string | null;
 }

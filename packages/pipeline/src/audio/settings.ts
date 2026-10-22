@@ -33,6 +33,22 @@ export interface AudioProviderStatus {
 
 const isSet = (v?: string | null) => Boolean(v && !v.includes("your-") && v.trim().length > 0);
 
+/**
+ * PROCESS-LOCAL SETTINGS.
+ *
+ * The settings below live in a module level variable of the process that
+ * called `saveAudioSettings`. They are:
+ *
+ *   * lost when the process restarts;
+ *   * NOT visible to any other process (the worker never sees a setting saved
+ *     by the API, and vice versa);
+ *   * never written to the database — the database schema is owned by another
+ *     team and no persistence is performed here.
+ *
+ * The read path deliberately falls through to the environment defaults on
+ * every call, so a process that never saved anything still sees the
+ * environment configuration.
+ */
 let memoryAudioSettingsCache: AudioSettings | null = null;
 
 export function getDefaultAudioSettings(): AudioSettings {
@@ -63,17 +79,27 @@ export function getDefaultAudioSettings(): AudioSettings {
   };
 }
 
-export async function getAudioSettings(): Promise<AudioSettings> {
+/**
+ * Returns the effective audio settings for this process.
+ *
+ * Process local: see the note on `memoryAudioSettingsCache`. Synchronous
+ * because it performs no I/O.
+ */
+export function getAudioSettings(): AudioSettings {
   if (memoryAudioSettingsCache) {
     return memoryAudioSettingsCache;
   }
-  const defaults = getDefaultAudioSettings();
-  memoryAudioSettingsCache = defaults;
-  return defaults;
+  return getDefaultAudioSettings();
 }
 
-export async function saveAudioSettings(updates: Partial<AudioSettings>): Promise<AudioSettings> {
-  const current = await getAudioSettings();
+/**
+ * Stores audio settings for this process only.
+ *
+ * Process local: see the note on `memoryAudioSettingsCache`. Synchronous
+ * because it performs no I/O.
+ */
+export function saveAudioSettings(updates: Partial<AudioSettings>): AudioSettings {
+  const current = getAudioSettings();
   const next: AudioSettings = {
     ...current,
     ...updates,
@@ -211,7 +237,7 @@ export async function getActiveAudioSettings(): Promise<{
   provider: AudioProviderId;
   voiceId: string;
 }> {
-  const settings = await getAudioSettings();
+  const settings = getAudioSettings();
   const statuses = getAudioProviderStatuses(settings);
   const activeStatus = statuses.find((s) => s.id === settings.provider);
 

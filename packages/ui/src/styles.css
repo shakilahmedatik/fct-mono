@@ -78,7 +78,9 @@
     --accent-foreground: 144 100% 97%;
 
     /* Status Palettes */
-    --destructive: 0 84.2% 48%;
+    /* `--destructive` is used as body text on `bg-destructive/10`; 0 84.2% 44%
+       reaches 4.73:1 against that composited surface (WCAG AA 4.5:1). */
+    --destructive: 0 84.2% 44%;
     --destructive-foreground: 0 0% 98%;
     --success: 142 76% 36%;
     --success-foreground: 0 0% 98%;
@@ -88,16 +90,18 @@
     --info-foreground: 0 0% 98%;
 
     /* Borders & Focus Rings */
-    --border: 240 5.9% 88%;
+    /* Component boundaries need 3:1 against the page surface (WCAG 1.4.11);
+       240 5.9% 57% measures 3.37:1 on white and 3.07:1 on `--muted`. */
+    --border: 240 5.9% 57%;
     --border-subtle: 240 5.9% 93%;
-    --input: 240 5.9% 88%;
+    --input: 240 5.9% 57%;
     --ring: 142 76% 36%;
     --radius: 0.75rem;
 
     /* Shell & Sidebar */
     --sidebar-background: 240 4.8% 97.5%;
     --sidebar-foreground: 240 10% 3.9%;
-    --sidebar-border: 240 5.9% 88%;
+    --sidebar-border: 240 5.9% 57%;
     --sidebar-accent: 142 76% 28%;
     --sidebar-accent-foreground: 144 100% 97%;
   }
@@ -126,8 +130,10 @@
     --accent-foreground: 144 80% 6%;
 
     /* Status Palettes */
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 98%;
+    /* 0 72% 60% reaches 4.82:1 on `bg-destructive/10` over `--background` and
+       4.59:1 over `--card` (WCAG AA 4.5:1 for body text). */
+    --destructive: 0 72% 60%;
+    --destructive-foreground: 240 10% 3.9%;
     --success: 142 71% 45%;
     --success-foreground: 144 80% 6%;
     --warning: 38 92% 50%;
@@ -136,15 +142,17 @@
     --info-foreground: 0 0% 98%;
 
     /* Borders & Focus Rings */
-    --border: 240 3.7% 18%;
+    /* 240 3.7% 44% measures 3.83:1 on `--background`, 3.68:1 on `--card` and
+       3.04:1 on `--muted` (WCAG 1.4.11 non-text contrast). */
+    --border: 240 3.7% 44%;
     --border-subtle: 240 3.7% 13%;
-    --input: 240 3.7% 18%;
+    --input: 240 3.7% 44%;
     --ring: 142 71% 45%;
 
     /* Shell & Sidebar */
     --sidebar-background: 240 10% 5.5%;
     --sidebar-foreground: 0 0% 98%;
-    --sidebar-border: 240 3.7% 16%;
+    --sidebar-border: 240 3.7% 44%;
     --sidebar-accent: 142 71% 45%;
     --sidebar-accent-foreground: 144 80% 6%;
   }

@@ -28,11 +28,19 @@ export const loggerMiddleware = createMiddleware(async (c, next) => {
 
   if (path === "/admin/playground/queues/status") return;
 
-  logger.info({
+  const payload = {
     method,
     path,
     status,
     durationMs: duration,
     requestId: c.get("requestId"),
-  });
+  };
+
+  // Server errors are logged at error level so they can be alerted on
+  // separately from ordinary traffic.
+  if (status >= 500) {
+    logger.error(payload, "Request failed");
+  } else {
+    logger.info(payload);
+  }
 });

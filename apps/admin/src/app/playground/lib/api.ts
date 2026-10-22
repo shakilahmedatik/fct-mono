@@ -6,7 +6,6 @@ import {
   type AIProviderId,
   type AIProviderStatus,
   type AISettings,
-  type AiConfig,
   API_BASE,
   type AudioProviderId,
   type AudioProviderStatus,
@@ -137,14 +136,38 @@ export async function exportSession(sessionId: string): Promise<ExportResponse |
   }
 }
 
+/**
+ * The API resolves a request's AI provider from the provider id in the
+ * `x-ai-provider` header — it never accepts a caller-supplied base URL or API
+ * key. Sending one used to let a caller aim the server's outbound LLM traffic
+ * at an arbitrary host (SSRF); the server now owns that configuration.
+ *
+ * The header is a plain provider id (`local`, `openrouter`, `openai`,
+ * `anthropic`, `gemini`).
+ *
+ * CORS: the API deliberately removed `x-ai-provider` from its allowed request
+ * headers, so it can only travel on a same-origin request (no preflight).
+ * A cross-origin admin deployment therefore lets the server use the provider
+ * it has configured as active — which the AI Config panel sets through
+ * `POST /admin/playground/ai/settings`.
+ */
+function canSendProviderHeader(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return new URL(API_BASE, window.location.href).origin === window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
 export async function apiPost<T = Record<string, unknown>>(
   path: string,
   body: Record<string, unknown>,
-  aiConfig: AiConfig,
+  providerId?: AIProviderId,
 ): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (aiConfig.baseURL || aiConfig.apiKey || aiConfig.model) {
-    headers["x-ai-provider"] = JSON.stringify(aiConfig);
+  if (providerId && canSendProviderHeader()) {
+    headers["x-ai-provider"] = providerId;
   }
   const res = await fetch(`${API_BASE}/admin/playground${path}`, {
     method: "POST",
@@ -152,6 +175,19 @@ export async function apiPost<T = Record<string, unknown>>(
     body: JSON.stringify({ sessionId: body.sessionId ?? "", ...body }),
   });
   return res.json();
+}
+
+/**
+ * The provider id the server should use for this request.
+ *
+ * The active provider is resolved from the server's own settings, so the
+ * browser never has to know a base URL or an API key.
+ */
+export async function resolveActiveProviderId(): Promise<AIProviderId | undefined> {
+  const ai = await fetchAISettings();
+  if (!ai) return undefined;
+  const active = ai.providers?.find((p) => p.isActive);
+  return active?.id ?? ai.settings?.activeProvider;
 }
 
 export async function fetchAISettings(): Promise<{

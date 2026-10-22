@@ -1,8 +1,12 @@
+// `sql` is exported from the package root, not from `drizzle-orm/pg-core`.
+import { sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   index,
   integer,
   pgTable,
+  real,
   text,
   timestamp,
   uniqueIndex,
@@ -25,7 +29,10 @@ export const users = pgTable(
     banExpires: timestamp("ban_expires", { withTimezone: true }),
 
     // Subscription & Profile
-    plan: planEnum("plan").default("PRO").notNull(),
+    // `plan` defaults to FREE: new accounts must start on the free tier so the
+    // cohort/paywall filter can actually engage. The enum members themselves
+    // are unchanged (a change there would need a destructive migration).
+    plan: planEnum("plan").default("FREE").notNull(),
     persona: text("persona"),
     telegramChatId: text("telegram_chat_id"),
     telegramUsername: text("telegram_username"),
@@ -36,9 +43,15 @@ export const users = pgTable(
     // Payment Gateway (Paddle)
     paddleCustomerId: text("paddle_customer_id"),
     paddleSubscriptionId: text("paddle_subscription_id"),
-    subscriptionStatus: text("subscription_status").default("trialing"),
+    // Free text (not a pg enum) because Paddle adds states over time. The
+    // values written by the billing service are: active | canceled | past_due |
+    // trialing. The column is NOT NULL so "does this account have a
+    // subscription state" is always answerable.
+    subscriptionStatus: text("subscription_status").default("trialing").notNull(),
     trialStartedAt: timestamp("trial_started_at", { withTimezone: true }).defaultNow(),
     trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
+    // Reserved idempotency marker for the "your trial ended" email. No reader
+    // exists yet — kept so the billing/trial job does not have to add it later.
     trialEndedEmailSentAt: timestamp("trial_ended_email_sent_at", { withTimezone: true }),
   },
   (table) => [
@@ -122,10 +135,26 @@ export const userPreferences = pgTable(
     deliveryHour: integer("delivery_hour").default(7).notNull(),
     audioEnabled: boolean("audio_enabled").default(true).notNull(),
     channelEnabled: boolean("channel_enabled").default(true).notNull(),
+    // Delivery cadence: daily | weekly | monthly. Free text (not a pg enum)
+    // so new cadences do not need a migration; the zod layer in
+    // @repo/shared-types enforces the three allowed values.
+    deliveryCadence: text("delivery_cadence").default("daily").notNull(),
+    // Narration persona id understood by the TTS layer ("neutral" by default).
+    voicePersona: text("voice_persona").default("neutral").notNull(),
+    // Playback rate multiplier, constrained to 0.5x - 2.0x by the CHECK below.
+    playbackSpeed: real("playback_speed").default(1).notNull(),
+    emailDigest: boolean("email_digest").default(true).notNull(),
+    emailAlerts: boolean("email_alerts").default(true).notNull(),
     embeddingVersion: integer("embedding_version").default(0).notNull(),
     lastPersonalizationAt: timestamp("last_personalization_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
-  (table) => [index("user_preference_user_id_idx").on(table.userId)],
+  (table) => [
+    index("user_preference_user_id_idx").on(table.userId),
+    check(
+      "user_preference_playback_speed_check",
+      sql`${table.playbackSpeed} >= 0.5 and ${table.playbackSpeed} <= 2.0`,
+    ),
+  ],
 );

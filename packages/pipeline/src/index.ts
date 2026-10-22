@@ -13,6 +13,7 @@ export {
   generateCompletion,
   generateEmbedding,
   getActiveAIConfig,
+  getAIConfigForProvider,
   getAIProviderStatuses,
   getAISettings,
   saveAISettings,
@@ -34,6 +35,13 @@ export {
   isProviderConfigured,
   saveAudioSettings,
 } from "./audio";
+// Sanitize — trust boundary for LLM-generated content
+export {
+  escapeTelegramHtml,
+  isSafeHttpUrl,
+  sanitizeHtmlContent,
+  sanitizePlainText,
+} from "./sanitize";
 // Sources
 export {
   DEFAULT_SOURCES,

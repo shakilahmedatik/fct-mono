@@ -597,96 +597,71 @@ describe("Challenger M5: Admin App Revamp Shell, Navigation & Dashboard Empirica
         ),
       ).toBeTrue();
 
-      // StatCard 1: Active Subscribers
-      expect(inspector.contains("Active Subscribers")).toBeTrue();
-      expect(inspector.contains("1,420")).toBeTrue();
-      expect(inspector.contains("+12% this week")).toBeTrue();
-      expect(inspector.contains("Active email audience")).toBeTrue();
+      // The dashboard reports what the admin API reports - no invented KPIs.
+      // The four platform tiles are bound to the admin stats payload.
+      expect(inspector.contains("Total Users")).toBeTrue();
+      expect(inspector.contains("Newsletter Subscribers")).toBeTrue();
+      expect(inspector.contains("Digests Generated")).toBeTrue();
+      expect(inspector.contains("Feedback Records")).toBeTrue();
 
-      // StatCard 2: Daily Digests Dispatched
-      expect(inspector.contains("Daily Digests Dispatched")).toBeTrue();
-      expect(inspector.contains("4,890")).toBeTrue();
-      expect(inspector.contains("99.8% on-time")).toBeTrue();
-      expect(
-        inspector.contains("Master &amp; cohort runs") ||
-          inspector.contains("Master & cohort runs"),
-      ).toBeTrue();
+      // The values stay placeholders until the admin API answers.
+      expect(inspector.contains("—")).toBeTrue();
 
-      // StatCard 3: Audio Synthesis Minutes
-      expect(inspector.contains("Audio Synthesis Minutes")).toBeTrue();
-      expect(inspector.contains("328m")).toBeTrue();
-      expect(inspector.contains("Kokoro v0.19 engine")).toBeTrue();
-      expect(inspector.contains("Neural voice synthesis")).toBeTrue();
-
-      // StatCard 4: Pipeline Latency / Failure Rate
-      expect(inspector.contains("Pipeline Latency / Failure Rate")).toBeTrue();
-      expect(inspector.contains("1.4s / 0.02%")).toBeTrue();
-      expect(inspector.contains("Healthy node status")).toBeTrue();
-      expect(inspector.contains("0.02% queue error rate")).toBeTrue();
+      const dashSrc = fs.readFileSync(
+        path.join(APPS_PATH, "admin/src/app/dashboard/page.tsx"),
+        "utf8",
+      );
+      for (const field of [
+        "stats.totalUsers",
+        "stats.totalSubscribers",
+        "stats.totalDigests",
+        "stats.totalFeedback",
+      ]) {
+        expect(dashSrc.includes(field)).toBeTrue();
+      }
     });
 
-    test("4.2 Subscriber Growth & Telemetry card renders audience distribution and pipeline metrics", () => {
+    test("4.2 Platform Totals card renders the counts the admin API reports", () => {
       const inspector = inspectHtml(el(ThemeProvider, null, el(AdminDashboardPage)));
 
-      // Card Header
-      expect(
-        inspector.contains("Subscriber Growth &amp; Telemetry") ||
-          inspector.contains("Subscriber Growth & Telemetry"),
-      ).toBeTrue();
-      expect(inspector.contains("Audience distribution across subscription tiers")).toBeTrue();
-      expect(inspector.contains("View Directory")).toBeTrue();
+      // The card links into the user directory ...
       expect(inspector.contains('href="/users"')).toBeTrue();
 
-      // Counters
-      expect(inspector.contains("1,680")).toBeTrue();
+      // ... and shows the three counters the admin API reports.
       expect(inspector.contains("Total Users")).toBeTrue();
-      expect(inspector.contains("PRO Subscribers")).toBeTrue();
-      expect(inspector.contains("260")).toBeTrue();
-      expect(inspector.contains("Free / Trial")).toBeTrue();
+      expect(inspector.contains("Newsletter Subscribers")).toBeTrue();
+      expect(inspector.contains("Digests Generated")).toBeTrue();
 
-      // Telemetry indicators
-      expect(inspector.contains("Daily Digest Delivery Rate")).toBeTrue();
-      expect(inspector.contains("99.8%")).toBeTrue();
-      expect(inspector.contains("Average Synthesis Duration")).toBeTrue();
-      expect(inspector.contains("1.4s")).toBeTrue();
-      expect(inspector.contains("PostgreSQL Replication Lag")).toBeTrue();
-      expect(inspector.contains("&lt; 2ms") || inspector.contains("< 2ms")).toBeTrue();
+      // Metrics the admin API does not report are labelled as such instead of
+      // being fabricated.
+      expect(inspector.contains("Not reported by the API")).toBeTrue();
     });
 
     test("4.3 Recent Signups & Activity renders subscriber cards with initial avatars and active pulsing status", () => {
       const inspector = inspectHtml(el(ThemeProvider, null, el(AdminDashboardPage)));
 
-      expect(
-        inspector.contains("Recent Signups &amp; Activity") ||
-          inspector.contains("Recent Signups & Activity"),
-      ).toBeTrue();
-      expect(inspector.contains("Live Stream")).toBeTrue();
+      // The activity list is filled from the admin API, so no fabricated users
+      // are rendered while it loads.
+      expect(inspector.contains("Alex Rivera")).toBeFalse();
+      expect(inspector.contains("Elena Rostova")).toBeFalse();
 
-      // Users rendered
-      expect(inspector.contains("Alex Rivera")).toBeTrue();
-      expect(inspector.contains("Dispatched audio brief 15m ago")).toBeTrue();
-
-      expect(inspector.contains("Elena Rostova")).toBeTrue();
-      expect(inspector.contains("Updated topic tags 1h ago")).toBeTrue();
-
-      expect(inspector.contains("Sam Chen")).toBeTrue();
-      expect(inspector.contains("Signed up 3h ago")).toBeTrue();
-
-      expect(inspector.contains("Jordan Vance")).toBeTrue();
-      expect(inspector.contains("Rate limit triggered 6h ago")).toBeTrue();
-
-      // Status badges
-      expect(inspector.contains("Active")).toBeTrue();
-      expect(inspector.contains("Suspended")).toBeTrue();
-      expect(inspector.contains("PRO")).toBeTrue();
-      expect(inspector.contains("FREE")).toBeTrue();
+      // The list renders one row per account with a plan and a status badge.
+      const dashSrc = fs.readFileSync(
+        path.join(APPS_PATH, "admin/src/app/dashboard/page.tsx"),
+        "utf8",
+      );
+      expect(dashSrc.includes("recentUsers.map((user) =>")).toBeTrue();
+      expect(dashSrc.includes('user.plan === "PRO" ? "success" : "secondary"')).toBeTrue();
+      expect(dashSrc.includes('user.status === "active" ? "Active" : "Suspended"')).toBeTrue();
     });
 
     test("4.4 Infrastructure Services card renders operational status across all 4 service nodes", () => {
       const inspector = inspectHtml(el(ThemeProvider, null, el(AdminDashboardPage)));
 
-      expect(inspector.contains("Infrastructure Services")).toBeTrue();
-      expect(inspector.contains("All Systems Normal")).toBeTrue();
+      // The health badge reflects the real probe result; it is "unchecked"
+      // until the client-side health check has run.
+      expect(inspector.contains("Health Unchecked")).toBeTrue();
+      expect(inspector.contains("All Systems Normal")).toBeFalse();
 
       // Service 1: PostgreSQL 17
       expect(inspector.contains("PostgreSQL 17")).toBeTrue();
@@ -704,8 +679,9 @@ describe("Challenger M5: Admin App Revamp Shell, Navigation & Dashboard Empirica
       expect(inspector.contains("Kokoro TTS")).toBeTrue();
       expect(inspector.contains("v0.19 engine")).toBeTrue();
 
-      // All 4 show Operational
-      expect(inspector.contains("Operational")).toBeTrue();
+      // Service health is not reported by the admin API yet.
+      expect(inspector.contains("Not reported")).toBeTrue();
+      expect(inspector.contains("Operational")).toBeFalse();
     });
   });
 
@@ -713,49 +689,34 @@ describe("Challenger M5: Admin App Revamp Shell, Navigation & Dashboard Empirica
   // Area 5: BullMQ Queue Table & Loading Fallbacks
   // =========================================================================
   describe("Area 5: BullMQ Queue Table & Loading Fallbacks", () => {
-    test("5.1 BullMQ Autonomous Queues table content, formatted metrics, and status badges", () => {
+    test("5.1 BullMQ Autonomous Queues card renders its header, pool count and API health badge", () => {
       const inspector = inspectHtml(el(ThemeProvider, null, el(AdminDashboardPage)));
 
-      // Header badges
-      expect(inspector.contains("BullMQ Autonomous Queues")).toBeTrue();
-      expect(inspector.contains("4 Active Pools")).toBeTrue();
-      expect(inspector.contains("Workers Healthy")).toBeTrue();
+      // Header badges report the real state: no pools known yet and the API
+      // health not yet probed.
+      expect(inspector.contains("0 Worker Pools")).toBeTrue();
+      expect(inspector.contains("API Unchecked")).toBeTrue();
 
-      // Table column headers
-      expect(inspector.contains("Queue Name")).toBeTrue();
-      expect(inspector.contains("Description")).toBeTrue();
-      expect(inspector.contains("Waiting")).toBeTrue();
-      expect(inspector.contains("Active")).toBeTrue();
-      expect(inspector.contains("Completed")).toBeTrue();
-      expect(inspector.contains("Failed")).toBeTrue();
-      expect(inspector.contains("Health Status")).toBeTrue();
+      // The queue rows come from the API, so the table is only rendered once
+      // the metrics arrive - during the initial load the card shows skeletons.
+      expect(inspector.contains("Queue Name")).toBeFalse();
 
-      // Queue 1: digest-pipeline
-      expect(inspector.contains("digest-pipeline")).toBeTrue();
-      expect(inspector.contains("Crawl signals, semantic clustering, ranking")).toBeTrue();
-      expect(inspector.contains("1,420")).toBeTrue();
-
-      // Queue 2: audio-generation (active: 1 running, waiting: 1)
-      expect(inspector.contains("audio-generation")).toBeTrue();
-      expect(
-        inspector.contains("Kokoro TTS voice synthesis &amp; audio brief packaging") ||
-          inspector.contains("Kokoro TTS voice synthesis & audio brief packaging"),
-      ).toBeTrue();
-      expect(inspector.contains("1 running")).toBeTrue();
-      expect(inspector.contains("890")).toBeTrue();
-
-      // Queue 3: telegram-delivery
-      expect(inspector.contains("telegram-delivery")).toBeTrue();
-      expect(
-        inspector.contains("Instant audio &amp; text broadcast dispatch") ||
-          inspector.contains("Instant audio & text broadcast dispatch"),
-      ).toBeTrue();
-      expect(inspector.contains("2,150")).toBeTrue();
-
-      // Queue 4: email-delivery (failed: 1)
-      expect(inspector.contains("email-delivery")).toBeTrue();
-      expect(inspector.contains("HTML daily briefing newsletter dispatch")).toBeTrue();
-      expect(inspector.contains("4,890")).toBeTrue();
+      // Table column headers are part of the table markup.
+      const dashSrc = fs.readFileSync(
+        path.join(APPS_PATH, "admin/src/app/dashboard/page.tsx"),
+        "utf8",
+      );
+      for (const column of [
+        "Queue Name",
+        "Description",
+        "Waiting",
+        "Active",
+        "Completed",
+        "Failed",
+        "Health Status",
+      ]) {
+        expect(dashSrc.includes(`>${column}</TableHead>`)).toBeTrue();
+      }
     });
 
     test("5.2 Skeleton loading fallbacks: source verification of skeleton UI during data refresh", () => {
@@ -796,7 +757,7 @@ describe("Challenger M5: Admin App Revamp Shell, Navigation & Dashboard Empirica
       expect(dashSrc.includes('title="No Queue Metrics Available"')).toBeTrue();
       expect(
         dashSrc.includes(
-          'description="The background queue broker (Valkey) returned no active worker pools."',
+          'description="The background queue broker returned no worker pool metrics."',
         ),
       ).toBeTrue();
       expect(dashSrc.includes("Retry Connection")).toBeTrue();

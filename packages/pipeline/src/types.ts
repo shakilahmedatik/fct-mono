@@ -177,7 +177,12 @@ export interface PipelineReport {
   storiesPersisted: number;
   digestItemsCreated: number;
   cohortsProcessed: number;
+  /** Number of audio generation jobs that were really added to the queue. */
   audioJobsEnqueued: number;
+  /** Number of delivery jobs that were really added to the queue. */
+  deliveryJobsEnqueued?: number;
+  /** True when the run had to fall back to degraded (seed) source content. */
+  degraded?: boolean;
   errors: string[];
   durationMs: number;
 }

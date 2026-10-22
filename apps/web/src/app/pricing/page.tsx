@@ -14,6 +14,7 @@ import {
 import { ArrowRight, Check, HelpCircle, Mail, Minus, Sparkles } from "lucide-react";
 import Link from "next/link";
 import * as React from "react";
+import { appUrl } from "../../lib/config";
 
 export default function PricingPage() {
   const [isAnnual, setIsAnnual] = React.useState(true);
@@ -122,7 +123,7 @@ export default function PricingPage() {
           </div>
 
           <CardFooter className="p-0 pt-8">
-            <a href="http://localhost:3001" className="w-full">
+            <a href={appUrl("/")} className="w-full">
               <Button variant="outline" className="w-full h-11 cursor-pointer">
                 Get Started Free
               </Button>
@@ -194,7 +195,7 @@ export default function PricingPage() {
           </div>
 
           <CardFooter className="p-0 pt-8">
-            <a href="http://localhost:3001" className="w-full">
+            <a href={appUrl("/")} className="w-full">
               <Button variant="primary" className="w-full h-11 cursor-pointer shadow-md">
                 Start 14-Day Free Trial
               </Button>
@@ -254,7 +255,7 @@ export default function PricingPage() {
           </div>
 
           <CardFooter className="p-0 pt-8">
-            <a href="http://localhost:3001" className="w-full">
+            <a href={appUrl("/")} className="w-full">
               <Button variant="outline" className="w-full h-11 cursor-pointer">
                 Start Team Trial
               </Button>
